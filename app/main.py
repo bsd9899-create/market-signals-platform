@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as dtime
@@ -49,6 +50,7 @@ _NO_OPPORTUNITY_MESSAGE = "🔍 تم فحص السوق بالكامل.\nلم ي�
 _RECENT_CLOSE_RE_ENTRY_WINDOW_HOURS = 24.0
 _EARNINGS_HIGH_RISK_HOURS = 2.0  # أقل من هذا = خطر مرتفع -> منع الإرسال فعلياً (وليس مجرد تخفيض Score)
 _ET = ZoneInfo("America/New_York")
+_TEST_TRIGGER_TEXTS = {"تجربة", "test"}  # وضع الاختبار عبر Telegram - راجع _handle_test_command
 
 
 def _resolve_env(key: str, config: ConfigLoader) -> str:
@@ -161,6 +163,90 @@ def _dispatch(tracker, key: str, text: str, telegram_service, sender, chat_id) -
         tracker.record_sent(key, text)
     icon = "✅" if success else "❌"
     print(f"{icon} [{key}] (HTTP {sender.last_status_code})")
+
+
+# ---------------------------------------------------------------------
+# وضع الاختبار عبر Telegram - "تجربة"/"test" -> رد فوري + توصية تجريبية
+# بنفس المسار الحقيقي 100% (نفس SignalFormatter/TelegramService
+# المُركَّبين مرة واحدة في _run_notification_loop، بلا أي نسخة جديدة).
+# **لا فحص، لا حفظ قاعدة بيانات، لا صفقة، لا تقرير، لا تأثير على
+# NotificationTracker** - راجع _handle_test_command أدناه حرفياً.
+# ---------------------------------------------------------------------
+
+
+def _build_test_status_text(config: ConfigLoader, market_service) -> str:
+    from app.infrastructure.telegram.message_builder import MessageBuilder
+
+    try:
+        market_open = market_service.get_market_status().is_open
+    except Exception:  # noqa: BLE001 - رسالة الحالة لا يجب أن تفشل بسبب تعذّر جلب حالة السوق
+        market_open = False
+
+    return (
+        MessageBuilder()
+        .line("✅ البوت يعمل بنجاح.")
+        .blank()
+        .line("🟢 الحالة: يعمل")
+        .blank()
+        .line(f"🕒 الوقت: {datetime.now(_ET).strftime('%Y-%m-%d %H:%M:%S %Z')}")
+        .blank()
+        .line(f"📊 السوق: {'OPEN' if market_open else 'CLOSED'}")
+        .blank()
+        .line(f"📦 الإصدار: {config.settings.app.version}")
+        .build()
+    )
+
+
+def _build_sample_test_signal():
+    """إشارة تجريبية ثابتة (بلا أي فحص حقيقي) - لعرض التنسيق الحقيقي فقط
+    عبر SignalFormatter نفسه، تماماً كإشارة حقيقية كانت ستمرّ به."""
+    from app.infrastructure.signals.models import Signal, SignalDirection
+
+    return Signal(
+        symbol="AAPL", timeframe="5m", direction=SignalDirection.BUY, confidence=85.0,
+        entry=305.20, stop_loss=302.10, take_profit=311.40, risk_reward=2.0,
+        strategy_used=["trend_following", "momentum"],
+        indicators_used=["trend_detection", "momentum_detection", "rsi", "macd"],
+        reasons=[
+            "اتجاه صاعد (EMA سريع=306.10 > EMA بطيء=303.40).",
+            "زخم صاعد (roc%=1.35).",
+            "MACD histogram موجبة (0.1820).",
+            "RSI=64.2.",
+        ],
+        timestamp=datetime.now(timezone.utc),
+    )
+
+
+def _handle_test_command(config: ConfigLoader, logger, telegram_service, market_service, chat_id: str) -> None:
+    from app.infrastructure.telegram.signal_formatter import SignalFormatter
+
+    try:
+        status_ok = telegram_service.send_message(chat_id, _build_test_status_text(config, market_service))
+        recommendation_text = SignalFormatter().format(_build_sample_test_signal())
+        recommendation_ok = telegram_service.send_message(chat_id, recommendation_text)
+    except Exception:
+        logger.exception("❌ Telegram test command failed.")
+        print("❌ Telegram test command failed.")
+        return
+
+    if status_ok and recommendation_ok:
+        logger.info("✅ Telegram test command executed successfully.")
+        print("✅ Telegram test command executed successfully.")
+    else:
+        logger.error("❌ Telegram test command failed.")
+        print("❌ Telegram test command failed.")
+
+
+def _run_test_command_listener(listener, config, logger, telegram_service, market_service, chat_id, stop_event) -> None:
+    print("👂 استماع لأوامر الاختبار عبر Telegram (أرسل 'تجربة' أو 'test')...")
+    while not stop_event.is_set():
+        messages = listener.poll()
+        for message in messages:
+            if message.chat_id != str(chat_id):
+                logger.warning("Telegram test command: رسالة من chat_id={} غير مُصرَّح - تجاهل.", message.chat_id)
+                continue
+            if message.text.strip().lower() in _TEST_TRIGGER_TEXTS:
+                _handle_test_command(config, logger, telegram_service, market_service, chat_id)
 
 
 # ---------------------------------------------------------------------
@@ -401,6 +487,7 @@ def _run_notification_loop(config: ConfigLoader, logger) -> None:
     from app.infrastructure.market.services import MarketService
     from app.infrastructure.news.providers.yahoo_news_provider import YahooNewsProvider
     from app.infrastructure.scanner.scanner import Scanner
+    from app.infrastructure.telegram.command_listener import TelegramCommandListener
     from app.infrastructure.telegram.notification_tracker import NotificationTracker
     from app.infrastructure.telegram.real_sender import RealTelegramSender
     from app.infrastructure.telegram.telegram_service import TelegramService
@@ -438,6 +525,16 @@ def _run_notification_loop(config: ConfigLoader, logger) -> None:
         "last_tracking_date": None, "daily_sent_date": None, "weekly_sent_date": None, "monthly_sent_date": None,
     }
 
+    command_listener = None
+    listener_stop_event = threading.Event()
+    if sender is not None and chat_id:
+        command_listener = TelegramCommandListener(bot_token)
+        threading.Thread(
+            target=_run_test_command_listener,
+            args=(command_listener, config, logger, telegram_service, market_service, chat_id, listener_stop_event),
+            daemon=True,
+        ).start()
+
     print(f"🕒 بدء الفحص الدوري كل {int(_SCAN_INTERVAL_SECONDS)} ثانية (Ctrl+C للإيقاف)...")
     try:
         while True:
@@ -462,6 +559,9 @@ def _run_notification_loop(config: ConfigLoader, logger) -> None:
     except KeyboardInterrupt:
         print("\n⏹️ تم إيقاف الفحص الدوري.")
     finally:
+        listener_stop_event.set()
+        if command_listener is not None:
+            command_listener.close()
         if sender is not None:
             sender.close()
         db_manager.close()
