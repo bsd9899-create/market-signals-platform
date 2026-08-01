@@ -58,31 +58,28 @@ def test_message_builder_fluent_api() -> None:
 
 def test_signal_formatter_buy_becomes_call() -> None:
     text = SignalFormatter().format(_signal(SignalDirection.BUY))
-    assert "🚨 AAPL — CALL" in text
-    assert "84.5%" in text
-    assert "Bullish" in text
+    assert "🟢 AAPL | شراء (CALL)" in text
+    assert "84%" in text
     assert "SELL" not in text and "BUY" not in text  # Signal.direction الخام لا يُطبَع كنص
 
 
 def test_signal_formatter_sell_becomes_put() -> None:
     text = SignalFormatter().format(_signal(SignalDirection.SELL))
-    assert "🚨 AAPL — PUT" in text
-    assert "Bearish" in text
+    assert "🔴 AAPL | بيع (PUT)" in text
 
 
 def test_signal_formatter_estimated_path_marks_values_as_estimated() -> None:
     text = SignalFormatter().format(_signal())
-    assert "تقديرية" in text
-    assert "Strike:" in text
-    assert "Exp:" in text
-    assert "💰 دخول:" in text
-    assert "🛑 وقف:" in text
-    assert "🎯 T1:" in text and "🎯 T2:" in text
-    assert "🕒 المتوقع:" in text
-    assert "⭐ Final Score:" in text
-    assert "📌 سبب الإشارة:" in text
+    assert "(تقديري)" in text
+    assert "🎯 Strike:" in text
+    assert "📅 الانتهاء:" in text
+    assert "💰 الدخول:" in text
+    assert "🛑 الوقف:" in text
+    assert "🎯 الهدف 1:" in text and "🎯 الهدف 2:" in text
+    assert "⭐ التقييم:" in text
+    assert "📈 " in text
     assert "⚠️ بيانات الخيارات قد تتأخر 15 دقيقة." in text
-    assert "━━━━━━━━━━━━━━" in text
+    assert "━━━━━━━━━━━━━━" not in text  # لا فاصل سميك في بطاقة الإشارة المختصرة
 
 
 def test_signal_formatter_real_option_contract_uses_real_values_not_estimated() -> None:
@@ -91,10 +88,10 @@ def test_signal_formatter_real_option_contract_uses_real_values_not_estimated() 
         bid=0.92, ask=1.12, last=1.02, volume=500, open_interest=1200, implied_volatility=0.35, delta=0.48,
     )
     text = SignalFormatter().format(_signal(SignalDirection.BUY), contract)
-    assert "Strike: 105.0" in text
-    assert "0.92$–1.12$" in text
-    assert "Exp: 07/08" in text
-    assert "تقديرية" not in text
+    assert "🎯 Strike: 105.0" in text
+    assert "💰 الدخول: 0.92 - 1.12$" in text
+    assert "📅 الانتهاء: 07/08" in text
+    assert "(تقديري)" not in text
 
 
 def test_signal_formatter_never_leaks_debug_content() -> None:
@@ -116,10 +113,10 @@ def test_signal_formatter_no_better_entry_banner_by_default() -> None:
 
 
 def test_signal_formatter_news_note_never_blocks_and_can_override_confidence() -> None:
-    text = SignalFormatter().format(_signal(), news_note="أخبار سلبية (2) تتعارض مع الاتجاه.", confidence_override=60.0)
-    assert "📰 أخبار سلبية (2) تتعارض مع الاتجاه." in text
-    assert "60.0%" in text
-    assert "84.5%" not in text  # القيمة الأصلية لا تظهر عند وجود بديل للعرض فقط
+    text = SignalFormatter().format(_signal(), news_note="سلبية", confidence_override=60.0)
+    assert "📰 الأخبار: سلبية" in text
+    assert "60%" in text
+    assert "84%" not in text  # القيمة الأصلية لا تظهر عند وجود بديل للعرض فقط
 
 
 def test_signal_formatter_without_news_note_omits_news_section() -> None:
@@ -134,8 +131,13 @@ def test_signal_formatter_re_entry_banner_takes_priority_over_better_entry() -> 
 
 
 def test_signal_formatter_earnings_note_is_its_own_section() -> None:
-    text = SignalFormatter().format(_signal(), earnings_note="Earnings خلال 24 ساعة.")
-    assert "⚠️ Earnings خلال 24 ساعة." in text
+    text = SignalFormatter().format(_signal(), earnings_note="خلال 24 ساعة")
+    assert "📅 الأرباح: خلال 24 ساعة" in text
+
+
+def test_signal_formatter_test_mode_banner() -> None:
+    text = SignalFormatter().format(_signal(), test_mode=True)
+    assert "🧪 توصية تجريبية" in text
 
 
 def test_signal_formatter_compute_levels_matches_format_output() -> None:
@@ -147,7 +149,7 @@ def test_signal_formatter_compute_levels_matches_format_output() -> None:
     text = formatter.format(signal)
 
     assert f"{levels.strike:.1f}" in text
-    assert f"{levels.entry_low:.2f}$–{levels.entry_high:.2f}$" in text
+    assert f"{levels.entry_low:.2f} - {levels.entry_high:.2f}$" in text
     assert f"{levels.t1:.2f}$" in text and f"{levels.t2:.2f}$" in text
     assert levels.option_type == "CALL"
     assert levels.is_estimated is True

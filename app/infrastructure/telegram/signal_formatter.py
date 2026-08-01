@@ -2,34 +2,34 @@
 app/infrastructure/telegram/signal_formatter.py
 ------------------------------------------------------
 SignalFormatter: يحوّل Signal (وOptionContract اختياري) إلى نص رسالة
-Telegram بأسلوب "بطاقة خيارات" جاهزة للتداول - BUY تصبح CALL، SELL
-تصبح PUT (SignalDirection نفسه في Signal.direction **لا يتغيّر إطلاقاً**
-- التحويل هنا عرض فقط، عند التنسيق).
+Telegram مختصرة وواضحة بالعربية - BUY تصبح "شراء (CALL)"، SELL تصبح
+"بيع (PUT)" (SignalDirection نفسه في Signal.direction **لا يتغيّر
+إطلاقاً** - التحويل هنا عرض فقط، عند التنسيق). سطر واحد لكل معلومة
+تقريباً، بلا فاصل سميك ختامي (راجع include_separator=False أدناه).
 
 مصدر بيانات العقد (Strike/نطاق الدخول/تاريخ الانتهاء):
-- إذا مُرِّر option_contract (من OptionsProvider حقيقي لاحقاً): تُستخدَم
+- إذا مُرِّر option_contract (من YahooFinanceProvider حقيقي): تُستخدَم
   قيمه الحقيقية مباشرة (Strike، Bid/Ask، تاريخ الانتهاء).
 - وإلا: Strike يُقرَّب لأقرب مضاعف معقول من سعر السهم (ATM تقديري)،
   وتاريخ الانتهاء يُقدَّر بأقرب جمعة، ونطاق الدخول/الوقف/الهدفين
   تُحسَب من علاوة مرجعية تقديرية ثابتة (Placeholder) - راجع
-  _ESTIMATED_BASE_PREMIUM أدناه. **كل قيمة تقديرية تُوسَم بوضوح** في
-  الرسالة (سطر "تقديرية" صريح تحت Strike/Exp).
+  _ESTIMATED_BASE_PREMIUM أدناه. **كل قيمة تقديرية تُوسَم بوضوح**
+  (لاحقة "(تقديري)" مختصرة على السطر نفسه - بلا جملة شرح طويلة).
 
 نسبة الوقف/الهدفين (سواء عقد حقيقي أو تقديري) تُستمَد من نفس نسبة
 المخاطرة/العائد (Signal.risk_reward) التي حسبها RiskManager فعلياً على
-مستوى السهم - وليست أرقاماً عشوائية - مُطبَّقة كنسبة مئوية ثابتة على
-علاوة العقد (RiskManager لا يحسب مستويات على مستوى العقد نفسه، فهذا
-خارج نطاقه تماماً).
+مستوى السهم - وليست أرقاماً عشوائية.
 
-better_entry/news_note/confidence_override (اختيارية، لا تُغيّر شيئاً
-افتراضياً): يُمرَّرها المُستدعي (NotificationTracker + NewsService في
-app/main.py) - لا يحسبها SignalFormatter نفسه:
-- better_entry=True: يُضاف شعار "🔄 Better Entry" في أعلى الرسالة.
-- news_note: نص أخبار جاهز يُضاف كقسم إضافي - **لا يمنع الإرسال أبداً**،
-  عرض فقط.
-- confidence_override: قيمة ثقة بديلة للعرض فقط (مثلاً بعد تعديل بسيط
-  بسبب أخبار متعارضة مع الاتجاه) - Signal.confidence الأصلي **لا يتغيّر
-  إطلاقاً** (Signal مُجمَّد أصلاً).
+معاملات اختيارية (لا تُغيّر شيئاً افتراضياً، يُمرِّرها app/main.py):
+- better_entry/re_entry: شعار أعلى الرسالة.
+- test_mode: شعار "🧪 توصية تجريبية" أعلى الرسالة (لوضع الاختبار عبر
+  Telegram فقط - راجع _handle_test_command).
+- news_note/earnings_note: تسميات مختصرة جاهزة (مثال: "إيجابية"،
+  "بعد 9 أيام") - **لا تمنع الإرسال أبداً**، عرض فقط.
+- confidence_override: Final Score للعرض فقط - Signal.confidence
+  الأصلي **لا يتغيّر إطلاقاً** (Signal مُجمَّد أصلاً).
+- option_score: جودة العقد (0-100) من YahooFinanceProvider - "-" إذا
+  لم تتوفر بيانات خيارات حقيقية.
 """
 
 from __future__ import annotations
@@ -41,11 +41,8 @@ from app.infrastructure.options.models import OptionContract
 from app.infrastructure.signals.models import Signal, SignalDirection
 from app.infrastructure.telegram.telegram_formatter import TelegramFormatter
 
+_TITLE_BY_DIRECTION = {SignalDirection.BUY: ("🟢", "شراء (CALL)"), SignalDirection.SELL: ("🔴", "بيع (PUT)")}
 _OPTION_TYPE_BY_DIRECTION = {SignalDirection.BUY: "CALL", SignalDirection.SELL: "PUT"}
-
-_QUICK_TIMEFRAMES = {"1m", "5m", "15m", "30m"}
-_TIMING_QUICK = "Quick (30-120 دقيقة)"
-_TIMING_SWING = "Swing (1-2 يوم)"
 
 _STRATEGY_DISPLAY_NAMES = {
     "trend_following": "Trend", "pullback": "Pullback", "breakout": "Breakout",
@@ -105,42 +102,44 @@ class SignalFormatter:
 
     def format(
         self, signal: Signal, option_contract: OptionContract | None = None,
-        better_entry: bool = False, re_entry: bool = False, news_note: str | None = None,
-        earnings_note: str | None = None, confidence_override: float | None = None,
-        option_score: float | None = None,
+        better_entry: bool = False, re_entry: bool = False, test_mode: bool = False,
+        news_note: str | None = None, earnings_note: str | None = None,
+        confidence_override: float | None = None, option_score: float | None = None,
     ) -> str:
         levels = self.compute_levels(signal, option_contract)
         final_score = confidence_override if confidence_override is not None else signal.confidence
+        circle, direction_text = _TITLE_BY_DIRECTION.get(signal.direction, ("⚪", signal.direction.value.upper()))
+        estimated_suffix = " (تقديري)" if levels.is_estimated else ""
 
         sections: list[str] = []
+        if test_mode:
+            sections.append("🧪 توصية تجريبية")
         if re_entry:
             sections.append("🔁 Re-entry")
         elif better_entry:
             sections.append("🔄 Better Entry")
-        sections += [
-            f"🚨 {signal.symbol} — {levels.option_type}",
-            self._strike_section(levels.strike, levels.expiration_text, levels.is_estimated),
-            f"💰 دخول:\n{levels.entry_low:.2f}$–{levels.entry_high:.2f}$",
-            f"🛑 وقف:\n{levels.stop:.2f}$ ({levels.stop_pct}% تقريبًا)",
-            f"🎯 T1: {levels.t1:.2f}$\n🎯 T2: {levels.t2:.2f}$",
-            f"🕒 المتوقع:\n{self._timing_for(signal.timeframe)}",
-            f"⭐ Final Score:\n{final_score:.1f}%",
-        ]
-        if option_score is not None:
-            sections.append(f"📈 Option Score:\n{option_score:.1f}%")
-        if news_note:
-            sections.append(f"📰 {news_note}")
-        if earnings_note:
-            sections.append(f"⚠️ {earnings_note}")
-        sections.append(f"📌 سبب الإشارة:\n{self._compose_reason_line(signal, levels.option_type)}")
-        return TelegramFormatter().render(sections)
 
-    @staticmethod
-    def _strike_section(strike: float, expiration_text: str, is_estimated: bool) -> str:
-        line = f"Strike: {strike:.1f} | Exp: {expiration_text}"
-        if is_estimated:
-            line += "\nℹ️ Strike/العقد/الأسعار أدناه تقديرية (بلا بيانات خيارات حقيقية متاحة الآن)."
-        return line
+        option_score_text = f"{option_score:.0f}%" if option_score is not None else "-"
+        sections += [
+            f"{circle} {signal.symbol} | {direction_text}",
+            f"📅 الانتهاء: {levels.expiration_text}{estimated_suffix}\n"
+            f"🎯 Strike: {levels.strike:.1f}{estimated_suffix}",
+            f"💰 الدخول: {levels.entry_low:.2f} - {levels.entry_high:.2f}$\n"
+            f"🛑 الوقف: {levels.stop:.2f}$",
+            f"🎯 الهدف 1: {levels.t1:.2f}$\n🎯 الهدف 2: {levels.t2:.2f}$",
+            f"⭐ التقييم: {final_score:.0f}%\n📊 جودة العقد: {option_score_text}",
+        ]
+
+        news_lines = []
+        if news_note:
+            news_lines.append(f"📰 الأخبار: {news_note}")
+        if earnings_note:
+            news_lines.append(f"📅 الأرباح: {earnings_note}")
+        if news_lines:
+            sections.append("\n".join(news_lines))
+
+        sections.append(f"📈 {self._compose_reason_line(signal)}")
+        return TelegramFormatter().render(sections, include_separator=False)
 
     @staticmethod
     def _estimate_atm_strike(price: float) -> float:
@@ -189,13 +188,7 @@ class SignalFormatter:
         return stop, stop_pct, t1, t2
 
     @staticmethod
-    def _timing_for(timeframe: str) -> str:
-        return _TIMING_QUICK if timeframe in _QUICK_TIMEFRAMES else _TIMING_SWING
-
-    @staticmethod
-    def _compose_reason_line(signal: Signal, option_type: str) -> str:
-        direction_word = "Bullish" if option_type == "CALL" else "Bearish" if option_type == "PUT" else option_type
-
+    def _compose_reason_line(signal: Signal) -> str:
         tags: list[str] = []
         for reason in signal.reasons:
             if ("اتجاه صاعد" in reason or "اتجاه هابط" in reason) and "EMA" not in tags:
@@ -212,5 +205,4 @@ class SignalFormatter:
             if display not in tags:
                 tags.append(display)
 
-        parts = [direction_word, *tags[:_MAX_REASON_TAGS]]
-        return " + ".join(parts)
+        return " + ".join(tags[:_MAX_REASON_TAGS]) if tags else "-"

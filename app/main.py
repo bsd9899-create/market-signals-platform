@@ -64,6 +64,31 @@ def _resolve_env(key: str, config: ConfigLoader) -> str:
 # ---------------------------------------------------------------------
 
 
+def _news_sentiment_label(news_score) -> str | None:
+    """تسمية مختصرة (إيجابية/سلبية/محايدة) بدل عرض الخبر الخام - تنسيق
+    رسالة فقط؛ NewsScore نفسه (average_score/item_count) يُحسَب بلا أي
+    تغيير ويُستخدَم كما هو في FinalScoreCalculator."""
+    if news_score.item_count == 0:
+        return None
+    if news_score.average_score > 0.15:
+        return "إيجابية"
+    if news_score.average_score < -0.15:
+        return "سلبية"
+    return "محايدة"
+
+
+def _earnings_distance_text(earnings_info) -> str | None:
+    """نص مختصر لبعد الأرباح - يُعرَض دائماً عند توفّر بيانات (وليس فقط
+    عند الاقتراب الشديد) - العتبة 48h/2h الفعلية في Final Score/المنع
+    تبقى بلا أي تغيير (راجع _run_scan_cycle)."""
+    if earnings_info is None:
+        return None
+    if earnings_info.hours_until < 48:
+        return f"خلال {earnings_info.hours_until:.0f} ساعة"
+    days = round(earnings_info.hours_until / 24)
+    return f"بعد {days} يوم"
+
+
 def _build_news_and_earnings_context(news_provider, symbol: str):
     """يفحص: أخبار حديثة + Earnings القادمة + SEC Filings + Analyst
     Upgrades/Downgrades (المطلب 3) - **لا يحسب أي تعديل ثقة هنا** (ذلك
@@ -73,19 +98,10 @@ def _build_news_and_earnings_context(news_provider, symbol: str):
 
     news_items = news_provider.get_latest_news(symbol, limit=5)
     news_score = NewsScorer().score_items(news_items)
-    news_note = None
-    if news_items:
-        latest = news_items[0]
-        news_note = (
-            f"{latest.headline}\n"
-            f"المصدر: {latest.source}\n"
-            f"الوقت: {latest.published_at.strftime('%Y-%m-%d %H:%M UTC')}"
-        )
+    news_note = _news_sentiment_label(news_score)
 
     earnings_info = news_provider.get_earnings_info(symbol)
-    earnings_note = None
-    if earnings_info is not None and earnings_info.hours_until < 48:
-        earnings_note = f"Earnings خلال {earnings_info.hours_until:.0f} ساعة."
+    earnings_note = _earnings_distance_text(earnings_info)
 
     # SEC Filings + Analyst Actions: تُفحَص فعلياً (متطلب صريح) لكنها لا
     # تظهر خاماً في الرسالة (فقط News/Earnings حسب تنسيق Telegram
@@ -184,15 +200,11 @@ def _build_test_status_text(config: ConfigLoader, market_service) -> str:
 
     return (
         MessageBuilder()
-        .line("✅ البوت يعمل بنجاح.")
+        .line("✅ البوت يعمل")
         .blank()
-        .line("🟢 الحالة: يعمل")
-        .blank()
-        .line(f"🕒 الوقت: {datetime.now(_ET).strftime('%Y-%m-%d %H:%M:%S %Z')}")
-        .blank()
-        .line(f"📊 السوق: {'OPEN' if market_open else 'CLOSED'}")
-        .blank()
-        .line(f"📦 الإصدار: {config.settings.app.version}")
+        .line(f"🕒 الوقت: {datetime.now(_ET).strftime('%H:%M:%S')}")
+        .line(f"📈 السوق: {'مفتوح' if market_open else 'مغلق'}")
+        .line(f"🤖 الإصدار: v{config.settings.app.version}")
         .build()
     )
 
@@ -217,12 +229,40 @@ def _build_sample_test_signal():
     )
 
 
-def _handle_test_command(config: ConfigLoader, logger, telegram_service, market_service, chat_id: str) -> None:
+def _handle_test_command(config: ConfigLoader, logger, telegram_service, market_service, provider, news_provider, chat_id: str) -> None:
+    """يُغني التوصية التجريبية ببيانات خيارات/أخبار/أرباح **حقيقية** (نفس
+    مصادر _run_scan_cycle تماماً) لتُعرَض التوصية بنفس التنسيق الحقيقي
+    100%. إثراء اختياري بحت: فشل الشبكة أثناءه (رمز/أعطال مؤقتة) لا يجب
+    أن يمنع إرسال رسالة الاختبار - يتراجع فقط إلى القيم التقديرية/الأساسية،
+    وحده فشل الإرسال الفعلي عبر Telegram يُسجَّل كـ"❌ failed"."""
+    from app.infrastructure.telegram.quality_score import FinalScoreCalculator
     from app.infrastructure.telegram.signal_formatter import SignalFormatter
+
+    signal = _build_sample_test_signal()
+    option_contract = option_score = news_note = earnings_note = None
+    final_score = signal.confidence
+    try:
+        scored_option = provider.get_best_option_contract(signal.symbol, signal.direction, signal.entry)
+        if scored_option is not None:
+            option_contract, option_score = scored_option.contract, scored_option.score
+
+        news_note, earnings_note, news_score, earnings_info = _build_news_and_earnings_context(news_provider, signal.symbol)
+        breakdown = FinalScoreCalculator().calculate(
+            technical_confidence=signal.confidence, strategy_used_count=len(signal.strategy_used),
+            direction=signal.direction, news_score=news_score, earnings_info=earnings_info, option_score=option_score,
+        )
+        final_score = breakdown.final_score
+    except Exception:  # noqa: BLE001 - إثراء اختياري فقط، راجع docstring أعلاه
+        logger.warning("Telegram test command: تعذّر إثراء التوصية التجريبية ببيانات حقيقية - عرض بالتقييم الأساسي.")
+        option_contract = option_score = news_note = earnings_note = None
+        final_score = signal.confidence
 
     try:
         status_ok = telegram_service.send_message(chat_id, _build_test_status_text(config, market_service))
-        recommendation_text = SignalFormatter().format(_build_sample_test_signal())
+        recommendation_text = SignalFormatter().format(
+            signal, option_contract, test_mode=True, news_note=news_note, earnings_note=earnings_note,
+            confidence_override=final_score, option_score=option_score,
+        )
         recommendation_ok = telegram_service.send_message(chat_id, recommendation_text)
     except Exception:
         logger.exception("❌ Telegram test command failed.")
@@ -237,7 +277,7 @@ def _handle_test_command(config: ConfigLoader, logger, telegram_service, market_
         print("❌ Telegram test command failed.")
 
 
-def _run_test_command_listener(listener, config, logger, telegram_service, market_service, chat_id, stop_event) -> None:
+def _run_test_command_listener(listener, config, logger, telegram_service, market_service, provider, news_provider, chat_id, stop_event) -> None:
     print("👂 استماع لأوامر الاختبار عبر Telegram (أرسل 'تجربة' أو 'test')...")
     while not stop_event.is_set():
         messages = listener.poll()
@@ -246,7 +286,7 @@ def _run_test_command_listener(listener, config, logger, telegram_service, marke
                 logger.warning("Telegram test command: رسالة من chat_id={} غير مُصرَّح - تجاهل.", message.chat_id)
                 continue
             if message.text.strip().lower() in _TEST_TRIGGER_TEXTS:
-                _handle_test_command(config, logger, telegram_service, market_service, chat_id)
+                _handle_test_command(config, logger, telegram_service, market_service, provider, news_provider, chat_id)
 
 
 # ---------------------------------------------------------------------
@@ -531,7 +571,10 @@ def _run_notification_loop(config: ConfigLoader, logger) -> None:
         command_listener = TelegramCommandListener(bot_token)
         threading.Thread(
             target=_run_test_command_listener,
-            args=(command_listener, config, logger, telegram_service, market_service, chat_id, listener_stop_event),
+            args=(
+                command_listener, config, logger, telegram_service, market_service, provider, news_provider,
+                chat_id, listener_stop_event,
+            ),
             daemon=True,
         ).start()
 
