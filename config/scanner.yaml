@@ -1,0 +1,14 @@
+# إعدادات Scanner + Scheduler - راجع app/infrastructure/scanner/
+# symbols: إذا تُرك فارغاً، يُستخدم محتوى config/symbols.yaml بدلاً منه.
+symbols: []
+
+# الأطر الزمنية الافتراضية لكل فحص (5 دقائق/15 دقيقة/ساعة/4 ساعات/يومي)
+timeframes:
+  - "5m"
+  - "15m"
+  - "1h"
+  - "4h"
+  - "1D"
+
+interval_seconds: 300     # كل كم ثانية يُشغِّل ScannerScheduler دورة فحص جديدة
+max_workers: 4            # أقصى عدد Threads متوازية في Scanner.scan_all()

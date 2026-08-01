@@ -1,0 +1,33 @@
+# إعدادات التطبيق العامة (غير السرّية) - القيم السرّية تُقرأ من .env فقط.
+app:
+  name: "Market Signals Platform"
+  version: "0.1.0"
+
+logging:
+  level: "INFO"          # يُطغى عليه بـ LOG_LEVEL من .env إن وُجد
+  directory: "logs"
+  file_name: "app.log"
+  rotation: "10 MB"       # يُنشئ ملفاً جديداً بعد بلوغ هذا الحجم
+  retention: "14 days"    # يحذف ملفات الأرشيف الأقدم من هذه المدة
+
+# إعدادات RiskManager - راجع app/infrastructure/risk/risk_manager.py
+risk:
+  default_risk_percent: 1.0            # % من رأس المال يُخاطَر به لكل صفقة
+  default_risk_reward_ratio: 2.0       # نسبة العائد/المخاطرة الافتراضية
+  atr_multiplier: 1.5                  # مضاعف ATR لحساب وقف الخسارة
+  max_daily_risk_percent: 5.0          # أقصى مخاطرة إجمالية مسموحة في اليوم
+  max_open_positions: 5                # أقصى عدد مراكز مفتوحة في آن واحد
+
+# إعدادات ReportEngine - راجع app/infrastructure/reports/report_engine.py
+reports:
+  enabled: true
+
+# إعدادات NewsService - MockNewsProvider فقط متاح حالياً (بلا API حقيقي)
+news:
+  enabled: true
+  provider: "mock"
+
+# إعدادات OptionsService - MockOptionsProvider فقط متاح حالياً (بلا API حقيقي)
+options:
+  enabled: true
+  provider: "mock"
