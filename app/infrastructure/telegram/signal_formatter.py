@@ -107,9 +107,10 @@ class SignalFormatter:
         self, signal: Signal, option_contract: OptionContract | None = None,
         better_entry: bool = False, re_entry: bool = False, news_note: str | None = None,
         earnings_note: str | None = None, confidence_override: float | None = None,
+        option_score: float | None = None,
     ) -> str:
         levels = self.compute_levels(signal, option_contract)
-        display_confidence = confidence_override if confidence_override is not None else signal.confidence
+        final_score = confidence_override if confidence_override is not None else signal.confidence
 
         sections: list[str] = []
         if re_entry:
@@ -123,13 +124,15 @@ class SignalFormatter:
             f"🛑 وقف:\n{levels.stop:.2f}$ ({levels.stop_pct}% تقريبًا)",
             f"🎯 T1: {levels.t1:.2f}$\n🎯 T2: {levels.t2:.2f}$",
             f"🕒 المتوقع:\n{self._timing_for(signal.timeframe)}",
-            f"⭐ الثقة:\n{display_confidence:.1f}%",
-            f"📌 سبب الإشارة:\n{self._compose_reason_line(signal, levels.option_type)}",
+            f"⭐ Final Score:\n{final_score:.1f}%",
         ]
+        if option_score is not None:
+            sections.append(f"📈 Option Score:\n{option_score:.1f}%")
         if news_note:
             sections.append(f"📰 {news_note}")
         if earnings_note:
             sections.append(f"⚠️ {earnings_note}")
+        sections.append(f"📌 سبب الإشارة:\n{self._compose_reason_line(signal, levels.option_type)}")
         return TelegramFormatter().render(sections)
 
     @staticmethod

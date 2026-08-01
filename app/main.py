@@ -47,6 +47,7 @@ _SCAN_INTERVAL_SECONDS = 60.0
 _NO_OPPORTUNITY_KEY = "__NO_OPPORTUNITY__"
 _NO_OPPORTUNITY_MESSAGE = "🔍 تم فحص السوق بالكامل.\nلم يتم العثور على فرصة تستحق الدخول حاليًا."
 _RECENT_CLOSE_RE_ENTRY_WINDOW_HOURS = 24.0
+_EARNINGS_HIGH_RISK_HOURS = 2.0  # أقل من هذا = خطر مرتفع -> منع الإرسال فعلياً (وليس مجرد تخفيض Score)
 _ET = ZoneInfo("America/New_York")
 
 
@@ -99,7 +100,13 @@ def _build_news_and_earnings_context(news_provider, symbol: str):
 # ---------------------------------------------------------------------
 
 
-def _decide_entry_kind(journal, symbol: str, direction_value: str, entry: float) -> str:
+def _decide_entry_kind(
+    journal, symbol: str, direction_value: str, entry: float, strike: float, expiration_text: str, confidence: float,
+) -> str:
+    """يسمح بتكرار الإشارة (المطلب 8) إذا: تحسّن الدخول، أو تغيّر
+    Strike، أو تغيّرت Expiration، أو ارتفعت الثقة - أي واحد منها كافٍ.
+    خلاف ذلك: SKIP (يمنع فتح صفقة ثانية مطابقة فعلياً - نافذة الـ5 دقائق
+    في NotificationTracker تبقى صافي أمان إضافي لاحقاً على مستوى النص)."""
     open_trades = [t for t in journal.get_open_trades() if t.symbol == symbol]
     if not open_trades:
         return "OPEN_NEW"
@@ -109,8 +116,14 @@ def _decide_entry_kind(journal, symbol: str, direction_value: str, entry: float)
         return "OPEN_NEW"  # الاتجاه تغيّر فعلياً - فرصة جديدة رغم وجود صفقة سابقة معاكسة
 
     is_buy = direction_value == "buy"
-    improved = entry < current.entry if is_buy else entry > current.entry
-    return "BETTER_ENTRY" if improved else "SKIP"
+    entry_improved = entry < current.entry if is_buy else entry > current.entry
+    strike_changed = current.strike != strike
+    expiration_changed = current.expiration != expiration_text
+    confidence_increased = confidence > current.confidence
+
+    if entry_improved or strike_changed or expiration_changed or confidence_increased:
+        return "BETTER_ENTRY"
+    return "SKIP"
 
 
 def _is_recently_closed(recently_closed: dict, symbol: str, now: datetime) -> bool:
@@ -182,28 +195,41 @@ def _run_scan_cycle(
     symbol = best.symbol
     direction_value = signal.direction.value
 
-    entry_kind = _decide_entry_kind(journal, symbol, direction_value, signal.entry)
+    scored_option = provider.get_best_option_contract(symbol, signal.direction, signal.entry)
+    option_contract = scored_option.contract if scored_option is not None else None
+    option_score = scored_option.score if scored_option is not None else None
+
+    formatter = SignalFormatter()
+    levels = formatter.compute_levels(signal, option_contract)
+
+    entry_kind = _decide_entry_kind(
+        journal, symbol, direction_value, signal.entry, levels.strike, levels.expiration_text, signal.confidence,
+    )
     if entry_kind == "SKIP":
-        print(f"⏭️ {symbol}: صفقة مفتوحة بسعر مساوٍ أو أفضل بالفعل - لا إشعار جديد.")
+        print(f"⏭️ {symbol}: صفقة مفتوحة بالفعل بلا أي تحسّن (سعر/Strike/Expiration/ثقة) - لا إشعار جديد.")
         return
 
     is_better_entry = entry_kind == "BETTER_ENTRY"
     now = datetime.now(timezone.utc)
     is_re_entry = entry_kind == "OPEN_NEW" and _is_recently_closed(recently_closed, symbol, now)
 
-    option_contract = provider.get_best_option_contract(symbol, signal.direction, signal.entry)
     news_note, earnings_note, news_score, earnings_info = _build_news_and_earnings_context(news_provider, symbol)
+
+    if earnings_info is not None and earnings_info.hours_until < _EARNINGS_HIGH_RISK_HOURS:
+        print(f"⛔ {symbol}: Earnings خلال {earnings_info.hours_until:.0f} ساعة فقط - خطر مرتفع، لا إرسال.")
+        _dispatch(tracker, _NO_OPPORTUNITY_KEY, _NO_OPPORTUNITY_MESSAGE, telegram_service, sender, chat_id)
+        return
 
     from app.infrastructure.telegram.quality_score import FinalScoreCalculator
 
     breakdown = FinalScoreCalculator().calculate(
-        technical_confidence=signal.confidence, direction=signal.direction, news_score=news_score,
-        earnings_info=earnings_info, option_contract=option_contract, is_estimated_contract=option_contract is None,
+        technical_confidence=signal.confidence, strategy_used_count=len(signal.strategy_used),
+        direction=signal.direction, news_score=news_score, earnings_info=earnings_info, option_score=option_score,
     )
     logger.info(
-        "{}: Final Score={} (technical={}, news={}, earnings={}, liquidity={})",
-        symbol, breakdown.final_score, breakdown.technical_score, breakdown.news_adjustment,
-        breakdown.earnings_adjustment, breakdown.liquidity_adjustment,
+        "{}: Final Score={} (technical={}, strategy={}, news={}, earnings={}, option={})",
+        symbol, breakdown.final_score, breakdown.technical_score, breakdown.strategy_score,
+        breakdown.news_score, breakdown.earnings_score, breakdown.option_score,
     )
 
     if breakdown.final_score < _MIN_CONFIDENCE_TO_ALERT:
@@ -211,11 +237,10 @@ def _run_scan_cycle(
         _dispatch(tracker, _NO_OPPORTUNITY_KEY, _NO_OPPORTUNITY_MESSAGE, telegram_service, sender, chat_id)
         return
 
-    formatter = SignalFormatter()
-    levels = formatter.compute_levels(signal, option_contract)
     text = formatter.format(
         signal, option_contract, better_entry=is_better_entry, re_entry=is_re_entry,
         news_note=news_note, earnings_note=earnings_note, confidence_override=breakdown.final_score,
+        option_score=option_score,
     )
 
     if not tracker.should_send(symbol, text):

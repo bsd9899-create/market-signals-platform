@@ -79,7 +79,7 @@ def test_signal_formatter_estimated_path_marks_values_as_estimated() -> None:
     assert "🛑 وقف:" in text
     assert "🎯 T1:" in text and "🎯 T2:" in text
     assert "🕒 المتوقع:" in text
-    assert "⭐ الثقة:" in text
+    assert "⭐ Final Score:" in text
     assert "📌 سبب الإشارة:" in text
     assert "⚠️ بيانات الخيارات قد تتأخر 15 دقيقة." in text
     assert "━━━━━━━━━━━━━━" in text

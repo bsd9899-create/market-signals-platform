@@ -23,8 +23,8 @@ class _FakeJournal:
         return self._open_trades
 
 
-def _open_trade(symbol: str, direction: str, entry: float):
-    return SimpleNamespace(symbol=symbol, direction=direction, entry=entry)
+def _open_trade(symbol: str, direction: str, entry: float, strike: float = 100.0, expiration: str = "05/08", confidence: float = 80.0):
+    return SimpleNamespace(symbol=symbol, direction=direction, entry=entry, strike=strike, expiration=expiration, confidence=confidence)
 
 
 def _signal(direction: SignalDirection, entry: float, stop: float | None, tp: float | None) -> Signal:
@@ -42,33 +42,48 @@ def _signal(direction: SignalDirection, entry: float, stop: float | None, tp: fl
 
 def test_decide_entry_kind_open_new_when_no_open_trade() -> None:
     journal = _FakeJournal([])
-    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0) == "OPEN_NEW"
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 80.0) == "OPEN_NEW"
 
 
 def test_decide_entry_kind_better_entry_for_cheaper_buy() -> None:
     journal = _FakeJournal([_open_trade("AAPL", "buy", 105.0)])
-    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0) == "BETTER_ENTRY"
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 80.0) == "BETTER_ENTRY"
 
 
-def test_decide_entry_kind_skip_when_buy_price_not_improved() -> None:
-    journal = _FakeJournal([_open_trade("AAPL", "buy", 100.0)])
-    assert _decide_entry_kind(journal, "AAPL", "buy", 101.0) == "SKIP"
-    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0) == "SKIP"  # مساوٍ = لا تحسّن
+def test_decide_entry_kind_skip_when_nothing_improved() -> None:
+    journal = _FakeJournal([_open_trade("AAPL", "buy", 100.0, strike=100.0, expiration="05/08", confidence=80.0)])
+    assert _decide_entry_kind(journal, "AAPL", "buy", 101.0, 100.0, "05/08", 80.0) == "SKIP"
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 80.0) == "SKIP"  # لا شيء تغيّر
 
 
 def test_decide_entry_kind_better_entry_for_higher_sell() -> None:
     journal = _FakeJournal([_open_trade("AAPL", "sell", 100.0)])
-    assert _decide_entry_kind(journal, "AAPL", "sell", 105.0) == "BETTER_ENTRY"
+    assert _decide_entry_kind(journal, "AAPL", "sell", 105.0, 100.0, "05/08", 80.0) == "BETTER_ENTRY"
 
 
 def test_decide_entry_kind_open_new_when_direction_flips() -> None:
     journal = _FakeJournal([_open_trade("AAPL", "buy", 100.0)])
-    assert _decide_entry_kind(journal, "AAPL", "sell", 100.0) == "OPEN_NEW"
+    assert _decide_entry_kind(journal, "AAPL", "sell", 100.0, 100.0, "05/08", 80.0) == "OPEN_NEW"
 
 
 def test_decide_entry_kind_ignores_other_symbols() -> None:
     journal = _FakeJournal([_open_trade("NVDA", "buy", 100.0)])
-    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0) == "OPEN_NEW"
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 80.0) == "OPEN_NEW"
+
+
+def test_decide_entry_kind_better_entry_when_strike_changed_only() -> None:
+    journal = _FakeJournal([_open_trade("AAPL", "buy", 100.0, strike=100.0, expiration="05/08", confidence=80.0)])
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 105.0, "05/08", 80.0) == "BETTER_ENTRY"
+
+
+def test_decide_entry_kind_better_entry_when_expiration_changed_only() -> None:
+    journal = _FakeJournal([_open_trade("AAPL", "buy", 100.0, strike=100.0, expiration="05/08", confidence=80.0)])
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "12/08", 80.0) == "BETTER_ENTRY"
+
+
+def test_decide_entry_kind_better_entry_when_confidence_increased_only() -> None:
+    journal = _FakeJournal([_open_trade("AAPL", "buy", 100.0, strike=100.0, expiration="05/08", confidence=80.0)])
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 85.0) == "BETTER_ENTRY"
 
 
 # ---------------------------------------------------------------------

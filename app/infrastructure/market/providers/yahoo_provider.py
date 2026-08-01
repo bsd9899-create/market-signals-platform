@@ -24,18 +24,29 @@ get_best_option_contract(): **ليس جزءاً من MarketDataProvider** (ال�
 حقيقية (Strike/Bid/Ask/Last/Volume/OpenInterest/IV) عند توفّرها، تُستدعى
 مباشرة من نقطة التركيب (app/main.py) قبل التنسيق عبر SignalFormatter -
 دون أي حاجة لطبقة OptionsProvider منفصلة في هذه المرحلة المؤقتة.
-اختيار "أفضل عقد" ضمن نطاق قريب من السعر الحالي (±15% - لتفادي عقد بعيد
-جداً عن ATM رغم سيولته) يُرتَّب بالتسلسل: 1) السيولة (Volume+OpenInterest)
-2) OpenInterest وحده 3) Volume وحده 4) أضيق فارق Bid/Ask - كل معيار
-يكسر التعادل في الذي قبله. "الثقة (Confidence)" ليست معياراً هنا لأنها
-خاصية للإشارة (Signal) نفسها لا للعقد - وهي أصلاً ما حدَّد أي رمز/اتجاه
-وصل لهذه الدالة أساساً (راجع app/main.py: يُختار الرمز الأعلى ثقة أولاً،
-ثم تُستدعى هذه الدالة لاختيار أفضل عقد ضمن رموزه هو تحديداً).
+اختيار "أفضل عقد": تُفحَص **كل** العقود ضمن نطاق قريب من السعر الحالي
+(ATM ± عدة Strike؛ مُطبَّق كنطاق ±15% من السعر - يلتقط عملياً عدة
+Strikes حول ATM لأي رمز نشط)، ثم يُحسَب Option Score (0-100) لكل عقد
+عبر get_best_option_contract -> ScoredOption، ويُختار الأعلى Score.
+
+Option Score = مجموع مرجَّح لـ: السيولة (Volume+OpenInterest)، OpenInterest
+وحده، Volume وحده، ضيق فارق Bid/Ask، وIV (تُفضَّل قيمة معتدلة - راجع
+_iv_score للتوثيق الكامل) - كل عنصر مُطبَّع لمقياس 0-100 بوضوح أدناه.
+**Delta غير متوفرة من Yahoo Finance فعلياً - لا تُستخدَم في Score ولا
+تُخترَع (OptionContract.delta تبقى None)**، امتثالاً لطلب صريح بعدم
+اختلاق بيانات غير متوفرة من المزود.
+
+"الثقة التقنية (Technical Confidence)" ليست معياراً هنا لأنها خاصية
+للإشارة (Signal) نفسها لا للعقد - راجع app/main.py: يُختار الرمز الأعلى
+ثقة أولاً، ثم تُستدعى هذه الدالة لاختيار أفضل عقد ضمن رموزه هو تحديداً؛
+Option Score الناتج هنا يُستخدَم لاحقاً كأحد مكوّنات Final Score (راجع
+app/infrastructure/telegram/quality_score.py).
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import yfinance as yf
@@ -48,7 +59,26 @@ from app.infrastructure.options.models import OptionContract
 from app.infrastructure.signals.models import SignalDirection
 
 _REFERENCE_SYMBOL_FOR_MARKET_STATUS = "SPY"
-_NEAR_MONEY_BAND_PCT = 0.15  # ابحث عن "أفضل عقد" ضمن ±15% من السعر الحالي فقط
+_NEAR_MONEY_BAND_PCT = 0.15  # ابحث عن "أفضل عقد" ضمن ±15% من السعر الحالي فقط (عدة Strikes عملياً)
+
+# أوزان Option Score (0-100) - مجموعها 1.0، موثَّقة صراحة:
+_OPTION_SCORE_WEIGHT_LIQUIDITY = 0.30    # Volume+OpenInterest معاً
+_OPTION_SCORE_WEIGHT_OPEN_INTEREST = 0.20
+_OPTION_SCORE_WEIGHT_VOLUME = 0.15
+_OPTION_SCORE_WEIGHT_SPREAD = 0.20       # فارق Bid/Ask أضيق = أفضل
+_OPTION_SCORE_WEIGHT_IV = 0.15           # IV معتدلة (وليست متطرفة) = أفضل - راجع _iv_score
+
+_LIQUIDITY_SATURATION = 5000.0   # Volume+OpenInterest عند/فوق هذه القيمة -> 100
+_OPEN_INTEREST_SATURATION = 2000.0
+_VOLUME_SATURATION = 5000.0
+_IV_CENTER = 0.375  # مركز "المعتدل" الافتراضي (~37.5%) - راجع _iv_score
+_IV_BAND_HALF_WIDTH = 0.225  # ضمن [15%,60%] تقريباً يبقى Score قريباً من 100
+
+
+@dataclass(frozen=True)
+class ScoredOption:
+    contract: OptionContract
+    score: float
 
 _TIMEFRAME_TO_YF_INTERVAL: dict[str, str] = {
     "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "60m", "4h": "60m", "1D": "1d",
@@ -158,10 +188,11 @@ class YahooFinanceProvider(MarketDataProvider):
 
     def get_best_option_contract(
         self, symbol: str, direction: SignalDirection, reference_price: float,
-    ) -> OptionContract | None:
-        """يُرجع أفضل عقد حقيقي (Calls لـBUY، Puts لـSELL) من أقرب تاريخ
-        انتهاء متاح، أو None إذا لم تتوفر بيانات خيارات لهذا الرمز إطلاقاً
-        (لا يرفع استثناء - غياب سلسلة خيارات حالة طبيعية لرموز كثيرة)."""
+    ) -> ScoredOption | None:
+        """يفحص **كل** العقود القريبة من السعر الحالي (ATM ± عدة Strike)
+        ويُرجِع الأعلى Option Score (0-100) منها كـScoredOption، أو None
+        إذا لم تتوفر بيانات خيارات لهذا الرمز إطلاقاً (لا يرفع استثناء -
+        غياب سلسلة خيارات حالة طبيعية لرموز كثيرة)."""
         ticker = yf.Ticker(symbol)
 
         try:
@@ -185,35 +216,83 @@ class YahooFinanceProvider(MarketDataProvider):
             return None
 
         table = table.copy()
-        table["volume"] = table["volume"].fillna(0)
-        table["openInterest"] = table["openInterest"].fillna(0)
-        table["bid"] = table["bid"].fillna(0)
-        table["ask"] = table["ask"].fillna(0)
+        for column in ("volume", "openInterest", "bid", "ask", "impliedVolatility"):
+            table[column] = table[column].fillna(0)
 
         low, high = reference_price * (1 - _NEAR_MONEY_BAND_PCT), reference_price * (1 + _NEAR_MONEY_BAND_PCT)
         near_money = table[(table["strike"] >= low) & (table["strike"] <= high)]
         candidates = near_money if not near_money.empty else table
 
         candidates = candidates.copy()
-        candidates["_liquidity_score"] = candidates["volume"] + candidates["openInterest"]
-        candidates["_spread"] = (candidates["ask"] - candidates["bid"]).clip(lower=0)
-        best = candidates.sort_values(
-            by=["_liquidity_score", "openInterest", "volume", "_spread"],
-            ascending=[False, False, False, True],
-        ).iloc[0]
+        candidates["_option_score"] = candidates.apply(
+            lambda row: self._option_score(
+                volume=self._safe_float(row["volume"]), open_interest=self._safe_float(row["openInterest"]),
+                bid=self._safe_float(row["bid"]), ask=self._safe_float(row["ask"]),
+                implied_volatility=self._safe_float(row["impliedVolatility"]),
+            ),
+            axis=1,
+        )
+        best = candidates.sort_values(by="_option_score", ascending=False).iloc[0]
 
         option_type = "CALL" if direction == SignalDirection.BUY else "PUT"
         contract = OptionContract(
             symbol=symbol, option_type=option_type, strike=self._safe_float(best["strike"]), expiration=expiration,
             bid=self._safe_float(best["bid"]), ask=self._safe_float(best["ask"]), last=self._safe_float(best["lastPrice"]),
             volume=int(best["volume"]), open_interest=int(best["openInterest"]),
-            implied_volatility=self._safe_float(best["impliedVolatility"]), delta=0.5,
+            implied_volatility=self._safe_float(best["impliedVolatility"]),
+            # delta غير متوفرة من Yahoo Finance فعلياً - None (لا تُخترَع).
         )
+        score = round(float(best["_option_score"]), 2)
         logger.info(
-            "YahooFinanceProvider.get_best_option_contract: {} {} strike={} exp={} liquidity_score={}",
-            symbol, option_type, contract.strike, expiration, best["_liquidity_score"],
+            "YahooFinanceProvider.get_best_option_contract: {} {} strike={} exp={} option_score={}",
+            symbol, option_type, contract.strike, expiration, score,
         )
-        return contract
+        return ScoredOption(contract=contract, score=score)
+
+    @classmethod
+    def _option_score(
+        cls, volume: float, open_interest: float, bid: float, ask: float, implied_volatility: float,
+    ) -> float:
+        liquidity_score = cls._saturating_score(volume + open_interest, _LIQUIDITY_SATURATION)
+        oi_score = cls._saturating_score(open_interest, _OPEN_INTEREST_SATURATION)
+        volume_score = cls._saturating_score(volume, _VOLUME_SATURATION)
+        spread_score = cls._spread_score(bid, ask)
+        iv_score = cls._iv_score(implied_volatility)
+
+        weighted = (
+            liquidity_score * _OPTION_SCORE_WEIGHT_LIQUIDITY
+            + oi_score * _OPTION_SCORE_WEIGHT_OPEN_INTEREST
+            + volume_score * _OPTION_SCORE_WEIGHT_VOLUME
+            + spread_score * _OPTION_SCORE_WEIGHT_SPREAD
+            + iv_score * _OPTION_SCORE_WEIGHT_IV
+        )
+        return max(0.0, min(100.0, weighted))
+
+    @staticmethod
+    def _saturating_score(value: float, saturation_point: float) -> float:
+        if saturation_point <= 0:
+            return 0.0
+        return max(0.0, min(100.0, (value / saturation_point) * 100.0))
+
+    @staticmethod
+    def _spread_score(bid: float, ask: float) -> float:
+        mid = (bid + ask) / 2
+        if mid <= 0:
+            return 0.0
+        spread_pct = max(0.0, (ask - bid) / mid)
+        return max(0.0, min(100.0, 100.0 - spread_pct * 200.0))
+
+    @staticmethod
+    def _iv_score(implied_volatility: float) -> float:
+        """يُفضِّل IV معتدلة (حول ~37.5%) بدل التطرّف في أي اتجاه - عقد
+        بـIV منخفضة جداً غالباً راكد/غير نشط فعلياً رغم رقمه المعروض،
+        وعقد بـIV مرتفعة جداً باهظ العلاوة ومخاطرة زمنية أعلى. هذا حكم
+        موثَّق صراحة على بيانات IV **حقيقية** من Yahoo - وليس اختلاقاً
+        لأي قيمة."""
+        if implied_volatility <= 0:
+            return 50.0  # لا بيانات IV فعلية - محايد، بلا مكافأة أو عقوبة
+        distance = abs(implied_volatility - _IV_CENTER)
+        return max(0.0, min(100.0, 100.0 - (distance / _IV_BAND_HALF_WIDTH) * 60.0))
 
     @staticmethod
     def _safe_float(value: object, default: float = 0.0) -> float:

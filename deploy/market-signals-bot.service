@@ -1,0 +1,34 @@
+# deploy/market-signals-bot.service
+# ---------------------------------------------
+# وحدة systemd لتشغيل البوت 24/7 مع إعادة تشغيل تلقائية عند أي عطل.
+# تثبيت (على خادم Linux فعلي، ليس هذه البيئة):
+#   sudo cp deploy/market-signals-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now market-signals-bot
+# سجلات التشغيل: journalctl -u market-signals-bot -f
+#
+# عدّل User وWorkingDirectory/ExecStart لمسار المشروع الفعلي على الخادم
+# قبل التثبيت - القيم أدناه افتراضية توضيحية فقط.
+
+[Unit]
+Description=Market Signals Platform - Telegram Options Signals Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=marketsignals
+Group=marketsignals
+WorkingDirectory=/opt/market-signals-platform
+EnvironmentFile=/opt/market-signals-platform/.env
+ExecStart=/opt/market-signals-platform/venv/bin/python -m app.main
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=0
+
+# لا صلاحيات إضافية غير الضرورية
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
