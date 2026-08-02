@@ -73,12 +73,12 @@ def test_signal_formatter_estimated_path_marks_values_as_estimated() -> None:
     assert "(تقديري)" in text
     assert "🎯 Strike:" in text
     assert "📅 الانتهاء:" in text
-    assert "💰 الدخول:" in text
+    assert "💵 الدخول:" in text
     assert "🛑 الوقف:" in text
     assert "🎯 الهدف 1:" in text and "🎯 الهدف 2:" in text
     assert "⭐ التقييم:" in text
-    assert "📈 " in text
-    assert "⚠️ بيانات الخيارات قد تتأخر 15 دقيقة." in text
+    assert "📌 السبب:" in text
+    assert "⚠️ ادخل فقط إذا كان السعر داخل نطاق الدخول." in text
     assert "━━━━━━━━━━━━━━" not in text  # لا فاصل سميك في بطاقة الإشارة المختصرة
 
 
@@ -88,8 +88,8 @@ def test_signal_formatter_real_option_contract_uses_real_values_not_estimated() 
         bid=0.92, ask=1.12, last=1.02, volume=500, open_interest=1200, implied_volatility=0.35, delta=0.48,
     )
     text = SignalFormatter().format(_signal(SignalDirection.BUY), contract)
-    assert "🎯 Strike: 105.0" in text
-    assert "💰 الدخول: 0.92 - 1.12$" in text
+    assert "🎯 Strike: 105" in text
+    assert "💵 الدخول: 0.92 - 1.12$" in text
     assert "📅 الانتهاء: 07/08" in text
     assert "(تقديري)" not in text
 
@@ -112,27 +112,27 @@ def test_signal_formatter_no_better_entry_banner_by_default() -> None:
     assert "🔄 Better Entry" not in text
 
 
-def test_signal_formatter_news_note_never_blocks_and_can_override_confidence() -> None:
-    text = SignalFormatter().format(_signal(), news_note="سلبية", confidence_override=60.0)
-    assert "📰 الأخبار: سلبية" in text
+def test_signal_formatter_confidence_override_replaces_original_confidence() -> None:
+    text = SignalFormatter().format(_signal(), confidence_override=60.0)
     assert "60%" in text
     assert "84%" not in text  # القيمة الأصلية لا تظهر عند وجود بديل للعرض فقط
 
 
-def test_signal_formatter_without_news_note_omits_news_section() -> None:
+def test_signal_formatter_never_shows_news_or_earnings_or_option_score() -> None:
+    """الأخبار/الأرباح/جودة العقد تؤثر داخلياً على Final Score فقط (عبر
+    FinalScoreCalculator في app/main.py) ولا تُعرَض في الرسالة إطلاقاً -
+    بطلب صريح."""
     text = SignalFormatter().format(_signal())
     assert "📰" not in text
+    assert "الأخبار" not in text
+    assert "الأرباح" not in text
+    assert "جودة العقد" not in text
 
 
 def test_signal_formatter_re_entry_banner_takes_priority_over_better_entry() -> None:
     text = SignalFormatter().format(_signal(), better_entry=True, re_entry=True)
     assert "🔁 Re-entry" in text
     assert "Better Entry" not in text
-
-
-def test_signal_formatter_earnings_note_is_its_own_section() -> None:
-    text = SignalFormatter().format(_signal(), earnings_note="خلال 24 ساعة")
-    assert "📅 الأرباح: خلال 24 ساعة" in text
 
 
 def test_signal_formatter_test_mode_banner() -> None:
@@ -148,7 +148,8 @@ def test_signal_formatter_compute_levels_matches_format_output() -> None:
     levels = formatter.compute_levels(signal)
     text = formatter.format(signal)
 
-    assert f"{levels.strike:.1f}" in text
+    strike_text = f"{levels.strike:.0f}" if levels.strike == int(levels.strike) else f"{levels.strike:.1f}"
+    assert strike_text in text
     assert f"{levels.entry_low:.2f} - {levels.entry_high:.2f}$" in text
     assert f"{levels.t1:.2f}$" in text and f"{levels.t2:.2f}$" in text
     assert levels.option_type == "CALL"
@@ -161,8 +162,8 @@ def test_telegram_formatter_disclaimer_optional() -> None:
     with_disclaimer = TelegramFormatter().render(["قسم واحد"], include_disclaimer=True)
     without_disclaimer = TelegramFormatter().render(["قسم واحد"], include_disclaimer=False)
 
-    assert "بيانات الخيارات قد تتأخر" in with_disclaimer
-    assert "بيانات الخيارات قد تتأخر" not in without_disclaimer
+    assert "ادخل فقط إذا كان السعر داخل نطاق الدخول" in with_disclaimer
+    assert "ادخل فقط إذا كان السعر داخل نطاق الدخول" not in without_disclaimer
     assert "━━━━━━━━━━━━━━" in without_disclaimer  # الفاصل السميك يبقى دائماً
 
 

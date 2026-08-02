@@ -59,58 +59,30 @@ def _resolve_env(key: str, config: ConfigLoader) -> str:
 
 
 # ---------------------------------------------------------------------
-# سياق الأخبار/الأرباح (المطلب 2) - لا يمنع أي إشارة أبداً، عرض + تعديل
-# ثقة العرض فقط عند تعارض واضح.
+# سياق الأخبار/الأرباح (المطلب 2) - لا يمنع أي إشارة أبداً، يؤثر داخلياً
+# على Final Score فقط عبر FinalScoreCalculator - **لا يظهر في الرسالة
+# إطلاقاً** (بطلب صريح - راجع SignalFormatter).
 # ---------------------------------------------------------------------
-
-
-def _news_sentiment_label(news_score) -> str | None:
-    """تسمية مختصرة (إيجابية/سلبية/محايدة) بدل عرض الخبر الخام - تنسيق
-    رسالة فقط؛ NewsScore نفسه (average_score/item_count) يُحسَب بلا أي
-    تغيير ويُستخدَم كما هو في FinalScoreCalculator."""
-    if news_score.item_count == 0:
-        return None
-    if news_score.average_score > 0.15:
-        return "إيجابية"
-    if news_score.average_score < -0.15:
-        return "سلبية"
-    return "محايدة"
-
-
-def _earnings_distance_text(earnings_info) -> str | None:
-    """نص مختصر لبعد الأرباح - يُعرَض دائماً عند توفّر بيانات (وليس فقط
-    عند الاقتراب الشديد) - العتبة 48h/2h الفعلية في Final Score/المنع
-    تبقى بلا أي تغيير (راجع _run_scan_cycle)."""
-    if earnings_info is None:
-        return None
-    if earnings_info.hours_until < 48:
-        return f"خلال {earnings_info.hours_until:.0f} ساعة"
-    days = round(earnings_info.hours_until / 24)
-    return f"بعد {days} يوم"
 
 
 def _build_news_and_earnings_context(news_provider, symbol: str):
     """يفحص: أخبار حديثة + Earnings القادمة + SEC Filings + Analyst
     Upgrades/Downgrades (المطلب 3) - **لا يحسب أي تعديل ثقة هنا** (ذلك
-    حصراً عبر FinalScoreCalculator في _run_scan_cycle) - فقط يجلب
-    البيانات الخام ونصوص العرض الجاهزة (News/Earnings) للرسالة."""
+    حصراً عبر FinalScoreCalculator في _run_scan_cycle) - يُرجع فقط
+    البيانات الخام (NewsScore/EarningsInfo) التي يستهلكها Final Score."""
     from app.infrastructure.news.scoring import NewsScorer
 
     news_items = news_provider.get_latest_news(symbol, limit=5)
     news_score = NewsScorer().score_items(news_items)
-    news_note = _news_sentiment_label(news_score)
-
     earnings_info = news_provider.get_earnings_info(symbol)
-    earnings_note = _earnings_distance_text(earnings_info)
 
     # SEC Filings + Analyst Actions: تُفحَص فعلياً (متطلب صريح) لكنها لا
-    # تظهر خاماً في الرسالة (فقط News/Earnings حسب تنسيق Telegram
-    # المطلوب) - محجوزة لاستخدام لاحق إن لزم (لا تدخل في Final Score
-    # حالياً لتفادي إشارات ضعيفة الدلالة من عدد محدود من السجلات).
+    # تدخل في Final Score حالياً (لتفادي إشارات ضعيفة الدلالة من عدد
+    # محدود من السجلات) ولا تظهر في الرسالة - محجوزة لاستخدام لاحق إن لزم.
     news_provider.get_sec_filings(symbol, limit=5)
     news_provider.get_analyst_actions(symbol, limit=3)
 
-    return news_note, earnings_note, news_score, earnings_info
+    return news_score, earnings_info
 
 
 # ---------------------------------------------------------------------
@@ -239,14 +211,15 @@ def _handle_test_command(config: ConfigLoader, logger, telegram_service, market_
     from app.infrastructure.telegram.signal_formatter import SignalFormatter
 
     signal = _build_sample_test_signal()
-    option_contract = option_score = news_note = earnings_note = None
+    option_contract = None
     final_score = signal.confidence
     try:
         scored_option = provider.get_best_option_contract(signal.symbol, signal.direction, signal.entry)
+        option_score = None
         if scored_option is not None:
             option_contract, option_score = scored_option.contract, scored_option.score
 
-        news_note, earnings_note, news_score, earnings_info = _build_news_and_earnings_context(news_provider, signal.symbol)
+        news_score, earnings_info = _build_news_and_earnings_context(news_provider, signal.symbol)
         breakdown = FinalScoreCalculator().calculate(
             technical_confidence=signal.confidence, strategy_used_count=len(signal.strategy_used),
             direction=signal.direction, news_score=news_score, earnings_info=earnings_info, option_score=option_score,
@@ -254,14 +227,13 @@ def _handle_test_command(config: ConfigLoader, logger, telegram_service, market_
         final_score = breakdown.final_score
     except Exception:  # noqa: BLE001 - إثراء اختياري فقط، راجع docstring أعلاه
         logger.warning("Telegram test command: تعذّر إثراء التوصية التجريبية ببيانات حقيقية - عرض بالتقييم الأساسي.")
-        option_contract = option_score = news_note = earnings_note = None
+        option_contract = None
         final_score = signal.confidence
 
     try:
         status_ok = telegram_service.send_message(chat_id, _build_test_status_text(config, market_service))
         recommendation_text = SignalFormatter().format(
-            signal, option_contract, test_mode=True, news_note=news_note, earnings_note=earnings_note,
-            confidence_override=final_score, option_score=option_score,
+            signal, option_contract, test_mode=True, confidence_override=final_score,
         )
         recommendation_ok = telegram_service.send_message(chat_id, recommendation_text)
     except Exception:
@@ -339,7 +311,7 @@ def _run_scan_cycle(
     now = datetime.now(timezone.utc)
     is_re_entry = entry_kind == "OPEN_NEW" and _is_recently_closed(recently_closed, symbol, now)
 
-    news_note, earnings_note, news_score, earnings_info = _build_news_and_earnings_context(news_provider, symbol)
+    news_score, earnings_info = _build_news_and_earnings_context(news_provider, symbol)
 
     if earnings_info is not None and earnings_info.hours_until < _EARNINGS_HIGH_RISK_HOURS:
         print(f"⛔ {symbol}: Earnings خلال {earnings_info.hours_until:.0f} ساعة فقط - خطر مرتفع، لا إرسال.")
@@ -365,8 +337,7 @@ def _run_scan_cycle(
 
     text = formatter.format(
         signal, option_contract, better_entry=is_better_entry, re_entry=is_re_entry,
-        news_note=news_note, earnings_note=earnings_note, confidence_override=breakdown.final_score,
-        option_score=option_score,
+        confidence_override=breakdown.final_score,
     )
 
     if not tracker.should_send(symbol, text):

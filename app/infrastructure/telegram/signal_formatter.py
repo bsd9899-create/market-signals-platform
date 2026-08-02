@@ -24,13 +24,12 @@ Telegram مختصرة وواضحة بالعربية - BUY تصبح "شراء (CA
 - better_entry/re_entry: شعار أعلى الرسالة.
 - test_mode: شعار "🧪 توصية تجريبية" أعلى الرسالة (لوضع الاختبار عبر
   Telegram فقط - راجع _handle_test_command).
-- news_note/earnings_note: تسميات مختصرة جاهزة (مثال: "إيجابية"،
-  "بعد 9 أيام") - **لا تمنع الإرسال أبداً**، عرض فقط.
 - confidence_override: Final Score للعرض فقط - Signal.confidence
   الأصلي **لا يتغيّر إطلاقاً** (Signal مُجمَّد أصلاً).
-- option_score: جودة العقد (0-100) من YahooFinanceProvider - "-" إذا
-  لم تتوفر بيانات خيارات حقيقية.
-"""
+
+الأخبار/الأرباح/جودة العقد (Option Score) **لا تُعرَض في الرسالة إطلاقاً**
+(بطلب صريح) - تستمر بالتأثير داخلياً على Final Score فقط عبر
+FinalScoreCalculator في app/main.py، بلا أي تغيير في حساباتها."""
 
 from __future__ import annotations
 
@@ -103,8 +102,7 @@ class SignalFormatter:
     def format(
         self, signal: Signal, option_contract: OptionContract | None = None,
         better_entry: bool = False, re_entry: bool = False, test_mode: bool = False,
-        news_note: str | None = None, earnings_note: str | None = None,
-        confidence_override: float | None = None, option_score: float | None = None,
+        confidence_override: float | None = None,
     ) -> str:
         levels = self.compute_levels(signal, option_contract)
         final_score = confidence_override if confidence_override is not None else signal.confidence
@@ -119,27 +117,21 @@ class SignalFormatter:
         elif better_entry:
             sections.append("🔄 Better Entry")
 
-        option_score_text = f"{option_score:.0f}%" if option_score is not None else "-"
         sections += [
             f"{circle} {signal.symbol} | {direction_text}",
             f"📅 الانتهاء: {levels.expiration_text}{estimated_suffix}\n"
-            f"🎯 Strike: {levels.strike:.1f}{estimated_suffix}",
-            f"💰 الدخول: {levels.entry_low:.2f} - {levels.entry_high:.2f}$\n"
+            f"🎯 Strike: {self._format_strike(levels.strike)}{estimated_suffix}",
+            f"💵 الدخول: {levels.entry_low:.2f} - {levels.entry_high:.2f}$\n"
             f"🛑 الوقف: {levels.stop:.2f}$",
             f"🎯 الهدف 1: {levels.t1:.2f}$\n🎯 الهدف 2: {levels.t2:.2f}$",
-            f"⭐ التقييم: {final_score:.0f}%\n📊 جودة العقد: {option_score_text}",
+            f"⭐ التقييم: {final_score:.0f}%",
+            f"📌 السبب:\n{self._compose_reason_line(signal)}",
         ]
-
-        news_lines = []
-        if news_note:
-            news_lines.append(f"📰 الأخبار: {news_note}")
-        if earnings_note:
-            news_lines.append(f"📅 الأرباح: {earnings_note}")
-        if news_lines:
-            sections.append("\n".join(news_lines))
-
-        sections.append(f"📈 {self._compose_reason_line(signal)}")
         return TelegramFormatter().render(sections, include_separator=False)
+
+    @staticmethod
+    def _format_strike(strike: float) -> str:
+        return f"{strike:.0f}" if strike == int(strike) else f"{strike:.1f}"
 
     @staticmethod
     def _estimate_atm_strike(price: float) -> float:
