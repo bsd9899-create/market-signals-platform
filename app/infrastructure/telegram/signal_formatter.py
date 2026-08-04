@@ -2,23 +2,27 @@
 app/infrastructure/telegram/signal_formatter.py
 ------------------------------------------------------
 SignalFormatter: يحوّل Signal (وOptionContract اختياري) إلى نص رسالة
-Telegram مختصرة وواضحة بالعربية - BUY تصبح "شراء (CALL)"، SELL تصبح
-"بيع (PUT)" (SignalDirection نفسه في Signal.direction **لا يتغيّر
-إطلاقاً** - التحويل هنا عرض فقط، عند التنسيق). سطر واحد لكل معلومة
-تقريباً، بلا فاصل سميك ختامي (راجع include_separator=False أدناه).
+Telegram - ترتيب الحقول (بطلب صريح): عنوان (SYMBOL — CALL/PUT) ← Strike
+وExpiration بسطر واحد ← الدخول ← الوقف ← T1/T2/T3 ← المتوقع ← التقييم
+← السبب ← التحذير. (SignalDirection نفسه في Signal.direction **لا
+يتغيّر إطلاقاً** - التحويل هنا عرض فقط، عند التنسيق).
 
 مصدر بيانات العقد (Strike/نطاق الدخول/تاريخ الانتهاء):
 - إذا مُرِّر option_contract (من YahooFinanceProvider حقيقي): تُستخدَم
-  قيمه الحقيقية مباشرة (Strike، Bid/Ask، تاريخ الانتهاء).
+  قيمه الحقيقية مباشرة (Strike، Bid/Ask، تاريخ الانتهاء) - راجع
+  get_best_option_contract للفلترة التي تضمن سعراً حقيقياً دائماً هناك
+  (بلا Bid/Ask صفريين) وسقف علاوة 3$.
 - وإلا: Strike يُقرَّب لأقرب مضاعف معقول من سعر السهم (ATM تقديري)،
-  وتاريخ الانتهاء يُقدَّر بأقرب جمعة، ونطاق الدخول/الوقف/الهدفين
+  وتاريخ الانتهاء يُقدَّر بأقرب جمعة، ونطاق الدخول/الوقف/الأهداف
   تُحسَب من علاوة مرجعية تقديرية ثابتة (Placeholder) - راجع
   _ESTIMATED_BASE_PREMIUM أدناه. **كل قيمة تقديرية تُوسَم بوضوح**
   (لاحقة "(تقديري)" مختصرة على السطر نفسه - بلا جملة شرح طويلة).
 
-نسبة الوقف/الهدفين (سواء عقد حقيقي أو تقديري) تُستمَد من نفس نسبة
+نسبة الوقف/الأهداف (سواء عقد حقيقي أو تقديري) تُستمَد من نفس نسبة
 المخاطرة/العائد (Signal.risk_reward) التي حسبها RiskManager فعلياً على
-مستوى السهم - وليست أرقاماً عشوائية.
+مستوى السهم - وليست أرقاماً عشوائية. T3 امتداد عرض إضافي فقط (لا يُحفَظ
+في Trade Journal ولا يُستخدَم في مراقبة المركز - ذلك يبقى tp1/tp2 على
+مستوى السهم الأساسي فقط، بلا أي تغيير).
 
 معاملات اختيارية (لا تُغيّر شيئاً افتراضياً، يُمرِّرها app/main.py):
 - better_entry/re_entry: شعار أعلى الرسالة.
@@ -40,8 +44,13 @@ from app.infrastructure.options.models import OptionContract
 from app.infrastructure.signals.models import Signal, SignalDirection
 from app.infrastructure.telegram.telegram_formatter import TelegramFormatter
 
-_TITLE_BY_DIRECTION = {SignalDirection.BUY: ("🟢", "شراء (CALL)"), SignalDirection.SELL: ("🔴", "بيع (PUT)")}
 _OPTION_TYPE_BY_DIRECTION = {SignalDirection.BUY: "CALL", SignalDirection.SELL: "PUT"}
+
+_TIMING_BY_TIMEFRAME = {
+    "1m": "Quick (30-120 دقيقة)", "5m": "Quick (30-120 دقيقة)", "15m": "Quick (30-120 دقيقة)",
+    "30m": "Quick (30-120 دقيقة)", "1h": "Swing (1-2 يوم)", "4h": "Swing (1-2 يوم)", "1D": "Swing (1-2 يوم)",
+}
+_DEFAULT_TIMING = "Swing (1-2 يوم)"
 
 _STRATEGY_DISPLAY_NAMES = {
     "trend_following": "Trend", "pullback": "Pullback", "breakout": "Breakout",
@@ -61,7 +70,8 @@ class SignalLevels:
     """كل القيم المُشتقّة من Signal (+OptionContract اختياري) - يحسبها
     compute_levels() مرة واحدة، يستهلكها format() للعرض، ويستهلكها
     app/main.py مباشرة لفتح صفقة في TradeJournal بنفس الأرقام
-    المعروضة فعلياً للمستخدم - بلا أي ازدواج حساب بين الاثنين."""
+    المعروضة فعلياً للمستخدم - بلا أي ازدواج حساب بين الاثنين. t3 عرض
+    فقط - لا يُستهلَك من app/main.py إطلاقاً."""
 
     option_type: str
     strike: float
@@ -72,6 +82,7 @@ class SignalLevels:
     stop_pct: int
     t1: float
     t2: float
+    t3: float
     is_estimated: bool
 
 
@@ -93,10 +104,10 @@ class SignalFormatter:
             entry_low = round(premium_base * 0.90, 2)
             entry_high = round(premium_base * 1.10, 2)
 
-        stop, stop_pct, t1, t2 = self._estimate_risk_levels(premium_base, signal.risk_reward)
+        stop, stop_pct, t1, t2, t3 = self._estimate_risk_levels(premium_base, signal.risk_reward)
         return SignalLevels(
             option_type=option_type, strike=strike, expiration_text=expiration_text, entry_low=entry_low,
-            entry_high=entry_high, stop=stop, stop_pct=stop_pct, t1=t1, t2=t2, is_estimated=is_estimated,
+            entry_high=entry_high, stop=stop, stop_pct=stop_pct, t1=t1, t2=t2, t3=t3, is_estimated=is_estimated,
         )
 
     def format(
@@ -106,7 +117,6 @@ class SignalFormatter:
     ) -> str:
         levels = self.compute_levels(signal, option_contract)
         final_score = confidence_override if confidence_override is not None else signal.confidence
-        circle, direction_text = _TITLE_BY_DIRECTION.get(signal.direction, ("⚪", signal.direction.value.upper()))
         estimated_suffix = " (تقديري)" if levels.is_estimated else ""
 
         sections: list[str] = []
@@ -118,12 +128,12 @@ class SignalFormatter:
             sections.append("🔄 Better Entry")
 
         sections += [
-            f"{circle} {signal.symbol} | {direction_text}",
-            f"📅 الانتهاء: {levels.expiration_text}{estimated_suffix}\n"
-            f"🎯 Strike: {self._format_strike(levels.strike)}{estimated_suffix}",
-            f"💵 الدخول: {levels.entry_low:.2f} - {levels.entry_high:.2f}$\n"
+            f"{signal.symbol} — {levels.option_type}",
+            f"Strike: {self._format_strike(levels.strike)} | Exp: {levels.expiration_text}{estimated_suffix}",
+            f"💵 الدخول: {levels.entry_low:.2f} - {levels.entry_high:.2f}$",
             f"🛑 الوقف: {levels.stop:.2f}$",
-            f"🎯 الهدف 1: {levels.t1:.2f}$\n🎯 الهدف 2: {levels.t2:.2f}$",
+            f"🎯 T1: {levels.t1:.2f}$\n🎯 T2: {levels.t2:.2f}$\n🎯 T3: {levels.t3:.2f}$",
+            f"🕒 المتوقع: {self._timing_for(signal.timeframe)}",
             f"⭐ التقييم: {final_score:.0f}%",
             f"📌 السبب:\n{self._compose_reason_line(signal)}",
         ]
@@ -132,6 +142,10 @@ class SignalFormatter:
     @staticmethod
     def _format_strike(strike: float) -> str:
         return f"{strike:.0f}" if strike == int(strike) else f"{strike:.1f}"
+
+    @staticmethod
+    def _timing_for(timeframe: str) -> str:
+        return _TIMING_BY_TIMEFRAME.get(timeframe, _DEFAULT_TIMING)
 
     @staticmethod
     def _estimate_atm_strike(price: float) -> float:
@@ -168,16 +182,18 @@ class SignalFormatter:
             return expiration
 
     @staticmethod
-    def _estimate_risk_levels(premium_base: float, risk_reward: float | None) -> tuple[float, int, float, float]:
+    def _estimate_risk_levels(premium_base: float, risk_reward: float | None) -> tuple[float, int, float, float, float]:
         rr = risk_reward if risk_reward and risk_reward > 0 else _DEFAULT_RISK_REWARD
         reward_pct_t2 = _ESTIMATED_STOP_PCT * rr
         reward_pct_t1 = reward_pct_t2 / 2
+        reward_pct_t3 = reward_pct_t2 * 1.5
 
         stop = round(premium_base * (1 - _ESTIMATED_STOP_PCT), 2)
         stop_pct = round((stop - premium_base) / premium_base * 100)
         t1 = round(premium_base * (1 + reward_pct_t1), 2)
         t2 = round(premium_base * (1 + reward_pct_t2), 2)
-        return stop, stop_pct, t1, t2
+        t3 = round(premium_base * (1 + reward_pct_t3), 2)
+        return stop, stop_pct, t1, t2, t3
 
     @staticmethod
     def _compose_reason_line(signal: Signal) -> str:

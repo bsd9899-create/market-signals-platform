@@ -10,6 +10,7 @@ tests/test_yahoo_provider_options.py
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pandas as pd
@@ -143,16 +144,89 @@ def test_expirations_fetch_failure_returns_none_not_exception(monkeypatch: pytes
     assert YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0) is None
 
 
-def test_nan_bid_ask_treated_as_zero_not_crash(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _calls_df([_row(100.0, math.nan, math.nan, 1.0, volume=10, oi=10)])
+def test_nan_bid_ask_falls_back_to_last_price_not_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    """شائع في تغذية Yahoo المجانية خارج ساعات التسعير الحيّ حتى لعقود
+    نشطة فعلياً: Bid/Ask يُعادان صفر/NaN بينما lastPrice حقيقي ومتوفر -
+    يجب عرض lastPrice بدل صفر وهمي 0.00$ (وليس استبعاد العقد بالكامل،
+    وإلا لن يُعرَض سعر حقيقي أبداً عملياً - راجع تحقق البيانات الحقيقية)."""
+    calls = _calls_df([_row(100.0, math.nan, math.nan, 1.5, volume=10, oi=10)])
     ticker = _FakeTicker("AAPL", ("2026-08-07",), calls, pd.DataFrame())
     _patch_ticker(monkeypatch, ticker)
 
     result = YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0)
     assert result is not None
-    assert result.contract.bid == 0.0
-    assert result.contract.ask == 0.0
+    assert result.contract.bid == 1.5 and result.contract.ask == 1.5
     assert 0.0 <= result.score <= 100.0
+
+
+def test_no_price_data_at_all_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """لا Bid/Ask ولا lastPrice (كلها صفر/NaN) = لا بيانات سعر حقيقية
+    إطلاقاً - يتراجع الاستدعاء إلى None (المسار التقديري المُوسَّم بوضوح
+    في SignalFormatter بدلاً من عقد "حقيقي" وهمي بسعر 0.00$)."""
+    calls = _calls_df([_row(100.0, math.nan, math.nan, 0.0, volume=10, oi=10)])
+    ticker = _FakeTicker("AAPL", ("2026-08-07",), calls, pd.DataFrame())
+    _patch_ticker(monkeypatch, ticker)
+
+    result = YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0)
+    assert result is None
+
+
+def test_real_bid_ask_contract_chosen_over_last_price_only_one_when_scores_favor_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _calls_df([
+        _row(100.0, math.nan, math.nan, 1.0, volume=5, oi=5),   # بلا Bid/Ask حيّ - سيولة منخفضة
+        _row(101.0, 1.0, 1.02, 1.01, volume=50, oi=50),         # Bid/Ask حيّان + فارق ضيق + سيولة أعلى - يفوز
+    ])
+    ticker = _FakeTicker("AAPL", ("2026-08-07",), calls, pd.DataFrame())
+    _patch_ticker(monkeypatch, ticker)
+
+    result = YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0)
+    assert result is not None
+    assert result.contract.strike == 101.0
+    assert result.contract.bid == 1.0 and result.contract.ask == 1.02
+
+
+def test_premium_above_3_dollars_excluded(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _calls_df([
+        _row(100.0, 4.0, 4.2, 4.1, volume=99999, oi=99999),  # سيولة عالية لكن العلاوة > 3$
+        _row(101.0, 1.0, 1.1, 1.05, volume=10, oi=10),        # ضمن سقف 3$ - يجب اختياره
+    ])
+    ticker = _FakeTicker("AAPL", ("2026-08-07",), calls, pd.DataFrame())
+    _patch_ticker(monkeypatch, ticker)
+
+    result = YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0)
+    assert result is not None
+    assert result.contract.strike == 101.0
+
+
+def test_all_real_quotes_above_3_dollars_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = _calls_df([_row(100.0, 4.0, 4.2, 4.1, volume=10, oi=10)])
+    ticker = _FakeTicker("AAPL", ("2026-08-07",), calls, pd.DataFrame())
+    _patch_ticker(monkeypatch, ticker)
+
+    assert YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0) is None
+
+
+def test_picks_expiration_after_today_skipping_0dte(monkeypatch: pytest.MonkeyPatch) -> None:
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    future_str = (datetime.now(timezone.utc) + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
+    calls = _calls_df([_row(100.0, 1.0, 1.1, 1.05, volume=10, oi=10)])
+    ticker = _FakeTicker("AAPL", (today_str, future_str), calls, pd.DataFrame())
+    _patch_ticker(monkeypatch, ticker)
+
+    result = YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0)
+    assert result is not None
+    assert result.contract.expiration == future_str
+
+
+def test_picks_first_expiration_when_none_are_future(monkeypatch: pytest.MonkeyPatch) -> None:
+    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    calls = _calls_df([_row(100.0, 1.0, 1.1, 1.05, volume=10, oi=10)])
+    ticker = _FakeTicker("AAPL", (today_str,), calls, pd.DataFrame())
+    _patch_ticker(monkeypatch, ticker)
+
+    result = YahooFinanceProvider().get_best_option_contract("AAPL", SignalDirection.BUY, 100.0)
+    assert result is not None
+    assert result.contract.expiration == today_str
 
 
 # ---------------------------------------------------------------------

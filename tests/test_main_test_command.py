@@ -132,7 +132,7 @@ def test_sample_test_signal_formats_via_real_signal_formatter() -> None:
     from app.infrastructure.telegram.signal_formatter import SignalFormatter
 
     text = SignalFormatter().format(_build_sample_test_signal())
-    assert "🟢 AAPL | شراء (CALL)" in text
+    assert "AAPL — CALL" in text
     assert "⭐ التقييم:" in text
 
 
@@ -150,7 +150,7 @@ def test_handle_test_command_sends_two_messages_and_logs_success() -> None:
     assert len(telegram_service.sent_messages) == 2
     assert telegram_service.sent_messages[0][1].startswith("✅ البوت يعمل")
     assert "🧪 توصية تجريبية" in telegram_service.sent_messages[1][1]
-    assert "🟢 AAPL | شراء (CALL)" in telegram_service.sent_messages[1][1]
+    assert "AAPL — CALL" in telegram_service.sent_messages[1][1]
     assert any("executed successfully" in msg for msg in logger.info_calls)
 
 
@@ -182,7 +182,7 @@ def test_handle_test_command_degrades_gracefully_when_enrichment_fails() -> None
     _handle_test_command(_config(), logger, telegram_service, _FakeMarketService(), _BrokenProvider(), _FakeNewsProvider(), "999")
 
     assert len(telegram_service.sent_messages) == 2
-    assert "🟢 AAPL | شراء (CALL)" in telegram_service.sent_messages[1][1]
+    assert "AAPL — CALL" in telegram_service.sent_messages[1][1]
     assert any("executed successfully" in msg for msg in logger.info_calls)
     assert any(logger.warning_calls)
 

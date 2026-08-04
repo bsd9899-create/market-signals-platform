@@ -44,6 +44,7 @@ from app.infrastructure.reports.schedule import is_friday, is_in_daily_report_wi
 
 _FALLBACK_SYMBOLS = ["AAPL", "NVDA", "TSLA"]  # يُستخدَم فقط إذا كان config/symbols.yaml فارغاً
 _MIN_CONFIDENCE_TO_ALERT = 70.0
+_MAX_DAILY_SIGNALS = 8  # سقف عدد التوصيات المُرسَلة يومياً (بطلب صريح) - يُحسَب من Trade Journal (يبقى صحيحاً عبر إعادة التشغيل)
 _SCAN_INTERVAL_SECONDS = 60.0
 _NO_OPPORTUNITY_KEY = "__NO_OPPORTUNITY__"
 _NO_OPPORTUNITY_MESSAGE = "🔍 تم فحص السوق بالكامل.\nلم يتم العثور على فرصة تستحق الدخول حاليًا."
@@ -96,7 +97,12 @@ def _decide_entry_kind(
     """يسمح بتكرار الإشارة (المطلب 8) إذا: تحسّن الدخول، أو تغيّر
     Strike، أو تغيّرت Expiration، أو ارتفعت الثقة - أي واحد منها كافٍ.
     خلاف ذلك: SKIP (يمنع فتح صفقة ثانية مطابقة فعلياً - نافذة الـ5 دقائق
-    في NotificationTracker تبقى صافي أمان إضافي لاحقاً على مستوى النص)."""
+    في NotificationTracker تبقى صافي أمان إضافي لاحقاً على مستوى النص).
+
+    Better Entry واحدة فقط لكل صفقة مفتوحة (بطلب صريح): إذا كانت
+    current.better_entry_sent مضبوطة مسبقاً (راجع mark_better_entry_sent
+    في _run_scan_cycle)، أي تحسّن إضافي على نفس الصفقة يُصبح SKIP بدل
+    BETTER_ENTRY - حتى تُغلَق الصفقة ويُفتَح غيرها."""
     open_trades = [t for t in journal.get_open_trades() if t.symbol == symbol]
     if not open_trades:
         return "OPEN_NEW"
@@ -112,6 +118,8 @@ def _decide_entry_kind(
     confidence_increased = confidence > current.confidence
 
     if entry_improved or strike_changed or expiration_changed or confidence_increased:
+        if getattr(current, "better_entry_sent", False):
+            return "SKIP"
         return "BETTER_ENTRY"
     return "SKIP"
 
@@ -273,6 +281,13 @@ def _run_scan_cycle(
     from app.infrastructure.signals.models import SignalDirection
     from app.infrastructure.telegram.signal_formatter import SignalFormatter
 
+    today_et = datetime.now(_ET).date()
+    day_start_utc = datetime.combine(today_et, dtime.min, tzinfo=_ET).astimezone(timezone.utc)
+    sent_today = len(journal.get_sent_between(day_start_utc, datetime.now(timezone.utc)))
+    if sent_today >= _MAX_DAILY_SIGNALS:
+        print(f"⛔ تم الوصول للحد اليومي ({_MAX_DAILY_SIGNALS} توصيات) - لا مزيد من الإرسال اليوم.")
+        return
+
     symbols = list(config.symbols) or _FALLBACK_SYMBOLS
     report = scanner.scan_all(symbols)
     stats = report.statistics
@@ -354,7 +369,6 @@ def _run_scan_cycle(
         return
 
     tracker.record_sent(symbol, text, signal)
-    today_et = datetime.now(_ET).date()
     event_counters.record_signal_sent(today_et, levels.option_type, is_better_entry, is_re_entry)
 
     if entry_kind == "OPEN_NEW" and signal.stop_loss is not None and signal.take_profit is not None:
@@ -368,6 +382,10 @@ def _run_scan_cycle(
         )
         recently_closed.pop(symbol, None)
         print(f"📒 فُتِحت صفقة #{trade_id} في Trade Journal: {symbol} {levels.option_type}")
+    elif is_better_entry:
+        open_trades = [t for t in journal.get_open_trades() if t.symbol == symbol]
+        if open_trades:
+            journal.mark_better_entry_sent(open_trades[0].id)
 
     tag = "RE-ENTRY" if is_re_entry else ("BETTER-ENTRY" if is_better_entry else "NEW")
     print(f"✅ [{symbol}] {levels.option_type} أُرسِلت ({tag}) إلى Telegram (HTTP {sender.last_status_code})")
@@ -378,25 +396,14 @@ def _run_scan_cycle(
 # ---------------------------------------------------------------------
 
 
-def _run_position_monitoring_cycle(position_monitor, telegram_service, sender, chat_id, recently_closed) -> None:
-    from app.infrastructure.telegram.position_event_formatter import PositionEventFormatter
-
+def _run_position_monitoring_cycle(position_monitor, recently_closed) -> None:
+    """يراقب المراكز المفتوحة ويُحدِّث Trade Journal (TP1/TP2/Stop) كما
+    هو - لكن **بلا أي رسالة Telegram مباشرة لهذه الأحداث** (بطلب صريح:
+    الرسائل الحية الوحيدة المسموحة هي التوصية + إعادة الدخول الاختيارية،
+    ونتائج هذه الأحداث تظهر لاحقاً فقط ضمن التقرير اليومي)."""
     events = position_monitor.check_open_positions()
-    if not events:
-        return
-
-    formatter = PositionEventFormatter()
     for event in events:
-        text = formatter.format(event)
         print(f"📍 {event.kind} {event.symbol} @ {event.price} ({event.profit_loss_percent}%)")
-        if sender is not None and chat_id:
-            success = telegram_service.send_message(chat_id, text)
-            icon = "✅" if success else "❌"
-            print(f"{icon} إرسال {event.kind} [{event.symbol}] (HTTP {sender.last_status_code})")
-        else:
-            print("⚠️ TELEGRAM فارغ - نص الحدث:")
-            print(text)
-
         if event.kind in ("TP2_HIT", "STOP_HIT"):
             recently_closed[event.symbol] = event.occurred_at
 
@@ -407,8 +414,7 @@ def _run_position_monitoring_cycle(position_monitor, telegram_service, sender, c
 
 
 def _send_period_report(
-    journal, stats_calculator, event_counters, counter_store, telegram_service, sender, chat_id,
-    period_label: str, period_value: str, start_date: date, today: date,
+    journal, telegram_service, sender, chat_id, period_label: str, period_value: str, start_date: date,
 ) -> None:
     from app.infrastructure.telegram.trade_report_formatter import TradeReportFormatter
     from app.infrastructure.tracking.models import TradeReportData
@@ -417,29 +423,7 @@ def _send_period_report(
     end_utc = datetime.now(timezone.utc)
 
     closed = journal.get_closed_between(start_utc, end_utc)
-    sent = journal.get_sent_between(start_utc, end_utc)
-    tp1_hits = journal.get_tp1_hits_between(start_utc, end_utc)
-    tp2_count = sum(1 for t in closed if t.status == "TP2_HIT")
-    stop_count = sum(1 for t in closed if t.status == "STOPPED")
-    call_count = sum(1 for t in sent if t.option_type == "CALL")
-    put_count = sum(1 for t in sent if t.option_type == "PUT")
-
-    counters_days = counter_store.load_range(start_date, today)
-    signals_sent = sum(c.signals_sent for c in counters_days)
-    better_entry_count = sum(c.better_entry_count for c in counters_days)
-    re_entry_count = sum(c.re_entry_count for c in counters_days)
-    if today not in {c.trading_date for c in counters_days}:
-        live = event_counters.snapshot(today)
-        signals_sent += live.signals_sent
-        better_entry_count += live.better_entry_count
-        re_entry_count += live.re_entry_count
-
-    stats = stats_calculator.calculate(closed)
-    data = TradeReportData(
-        period_label=period_label, period_value=period_value, signals_sent=signals_sent, total_trades=len(sent),
-        call_count=call_count, put_count=put_count, tp1_count=len(tp1_hits), tp2_count=tp2_count,
-        stop_count=stop_count, better_entry_count=better_entry_count, re_entry_count=re_entry_count, statistics=stats,
-    )
+    data = TradeReportData(period_label=period_label, period_value=period_value, closed_trades=closed)
     text = TradeReportFormatter().format(data)
     print(f"--- تقرير {period_label} ({period_value}) ---")
     print(text)
@@ -452,7 +436,7 @@ def _send_period_report(
 
 
 def _maybe_send_reports(
-    journal, stats_calculator, event_counters, counter_store, telegram_service, sender, chat_id, report_state,
+    journal, event_counters, counter_store, telegram_service, sender, chat_id, report_state,
 ) -> None:
     now_et = datetime.now(_ET)
     today = now_et.date()
@@ -465,26 +449,20 @@ def _maybe_send_reports(
         return
 
     if report_state.get("daily_sent_date") != today:
-        _send_period_report(
-            journal, stats_calculator, event_counters, counter_store, telegram_service, sender, chat_id,
-            "يومي", today.isoformat(), today, today,
-        )
+        _send_period_report(journal, telegram_service, sender, chat_id, "يومي", today.isoformat(), today)
         report_state["daily_sent_date"] = today
 
     if is_friday(today) and report_state.get("weekly_sent_date") != today:
         week_start = today - timedelta(days=today.weekday())
         _send_period_report(
-            journal, stats_calculator, event_counters, counter_store, telegram_service, sender, chat_id,
-            "أسبوعي", f"{week_start.isoformat()} → {today.isoformat()}", week_start, today,
+            journal, telegram_service, sender, chat_id,
+            "أسبوعي", f"{week_start.isoformat()} → {today.isoformat()}", week_start,
         )
         report_state["weekly_sent_date"] = today
 
     if is_last_trading_day_of_month(today) and report_state.get("monthly_sent_date") != today:
         month_start = today.replace(day=1)
-        _send_period_report(
-            journal, stats_calculator, event_counters, counter_store, telegram_service, sender, chat_id,
-            "شهري", today.strftime("%Y-%m"), month_start, today,
-        )
+        _send_period_report(journal, telegram_service, sender, chat_id, "شهري", today.strftime("%Y-%m"), month_start)
         report_state["monthly_sent_date"] = today
 
 
@@ -505,7 +483,6 @@ def _run_notification_loop(config: ConfigLoader, logger) -> None:
     from app.infrastructure.tracking.counter_store import DailyCounterStore
     from app.infrastructure.tracking.event_counters import EventCounterTracker
     from app.infrastructure.tracking.position_monitor import PositionMonitor
-    from app.infrastructure.tracking.statistics import TradeStatisticsCalculator
     from app.infrastructure.tracking.trade_journal import TradeJournal
 
     bot_token = _resolve_env("TELEGRAM_BOT_TOKEN", config)
@@ -527,7 +504,6 @@ def _run_notification_loop(config: ConfigLoader, logger) -> None:
     tracker = NotificationTracker()
     event_counters = EventCounterTracker()
     counter_store = DailyCounterStore(db_manager)
-    stats_calculator = TradeStatisticsCalculator()
     sender = RealTelegramSender(bot_token=bot_token) if bot_token else None
     telegram_service = TelegramService(sender=sender) if sender is not None else TelegramService()
 
@@ -562,11 +538,8 @@ def _run_notification_loop(config: ConfigLoader, logger) -> None:
                 else:
                     print("💤 السوق الأمريكي مغلق حالياً (خارج ساعات التداول العادية) - لا فحص جديد.")
 
-                _run_position_monitoring_cycle(position_monitor, telegram_service, sender, chat_id, recently_closed)
-                _maybe_send_reports(
-                    journal, stats_calculator, event_counters, counter_store, telegram_service, sender, chat_id,
-                    report_state,
-                )
+                _run_position_monitoring_cycle(position_monitor, recently_closed)
+                _maybe_send_reports(journal, event_counters, counter_store, telegram_service, sender, chat_id, report_state)
             except Exception:
                 logger.exception("دورة فحص/إشعار فشلت - سيُعاد المحاولة في الدورة القادمة.")
             time.sleep(_SCAN_INTERVAL_SECONDS)

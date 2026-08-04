@@ -46,6 +46,14 @@ class TradeJournal:
         with self._db.session() as session:
             return TradeRepository(session).get_open()
 
+    def mark_better_entry_sent(self, trade_id: int) -> None:
+        """يُستدعى فقط بعد إرسال رسالة Better Entry فعلياً بنجاح - يمنع
+        _decide_entry_kind من السماح بأي Better Entry أخرى لنفس الصفقة
+        حتى تُغلَق (بطلب صريح: واحدة فقط لكل صفقة)."""
+        with self._db.session() as session:
+            TradeRepository(session).update(trade_id, better_entry_sent=True)
+        logger.info("TradeJournal.mark_better_entry_sent: #{}", trade_id)
+
     def mark_tp1_hit(self, trade_id: int, price: float, at: datetime) -> None:
         with self._db.session() as session:
             TradeRepository(session).update(trade_id, status="TP1_HIT", tp1_hit_at=at, tp1_hit_price=price)

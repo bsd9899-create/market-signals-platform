@@ -15,7 +15,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from app.infrastructure.tracking.statistics import TradeStatistics
+    from app.infrastructure.database.models import Trade
 
 PositionEventKind = Literal["TP1_HIT", "TP2_HIT", "STOP_HIT"]
 
@@ -45,17 +45,10 @@ class DailyCounters:
 @dataclass(frozen=True)
 class TradeReportData:
     """مدخل جاهز لـ TradeReportFormatter - يُبنى في app/main.py من
-    EventCounterTracker + TradeJournal + TradeStatisticsCalculator معاً."""
+    TradeJournal.get_closed_between() مباشرة. الحقول المُجمَّعة
+    (الفائز/الخاسر/الأفضل/الأسوأ...) يحسبها TradeReportFormatter نفسه
+    من closed_trades عبر TradeStatisticsCalculator - بلا ازدواج حساب هنا."""
 
     period_label: str  # "يومي" / "أسبوعي" / "شهري"
     period_value: str  # نص جاهز (تاريخ أو نطاق تاريخ)
-    signals_sent: int
-    total_trades: int
-    call_count: int
-    put_count: int
-    tp1_count: int
-    tp2_count: int
-    stop_count: int
-    better_entry_count: int
-    re_entry_count: int
-    statistics: "TradeStatistics"
+    closed_trades: list["Trade"]

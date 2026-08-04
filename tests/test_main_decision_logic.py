@@ -23,8 +23,14 @@ class _FakeJournal:
         return self._open_trades
 
 
-def _open_trade(symbol: str, direction: str, entry: float, strike: float = 100.0, expiration: str = "05/08", confidence: float = 80.0):
-    return SimpleNamespace(symbol=symbol, direction=direction, entry=entry, strike=strike, expiration=expiration, confidence=confidence)
+def _open_trade(
+    symbol: str, direction: str, entry: float, strike: float = 100.0, expiration: str = "05/08",
+    confidence: float = 80.0, better_entry_sent: bool = False,
+):
+    return SimpleNamespace(
+        symbol=symbol, direction=direction, entry=entry, strike=strike, expiration=expiration,
+        confidence=confidence, better_entry_sent=better_entry_sent,
+    )
 
 
 def _signal(direction: SignalDirection, entry: float, stop: float | None, tp: float | None) -> Signal:
@@ -84,6 +90,18 @@ def test_decide_entry_kind_better_entry_when_expiration_changed_only() -> None:
 def test_decide_entry_kind_better_entry_when_confidence_increased_only() -> None:
     journal = _FakeJournal([_open_trade("AAPL", "buy", 100.0, strike=100.0, expiration="05/08", confidence=80.0)])
     assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 85.0) == "BETTER_ENTRY"
+
+
+def test_decide_entry_kind_skip_when_better_entry_already_sent_for_this_trade() -> None:
+    """Better Entry واحدة فقط لكل صفقة مفتوحة (بطلب صريح) - حتى لو تحسّن
+    الدخول أكثر، لا تُرسَل Better Entry ثانية لنفس الصفقة."""
+    journal = _FakeJournal([_open_trade("AAPL", "buy", 105.0, better_entry_sent=True)])
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 80.0) == "SKIP"
+
+
+def test_decide_entry_kind_better_entry_still_allowed_before_first_one_sent() -> None:
+    journal = _FakeJournal([_open_trade("AAPL", "buy", 105.0, better_entry_sent=False)])
+    assert _decide_entry_kind(journal, "AAPL", "buy", 100.0, 100.0, "05/08", 80.0) == "BETTER_ENTRY"
 
 
 # ---------------------------------------------------------------------

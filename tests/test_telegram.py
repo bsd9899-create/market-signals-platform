@@ -58,24 +58,24 @@ def test_message_builder_fluent_api() -> None:
 
 def test_signal_formatter_buy_becomes_call() -> None:
     text = SignalFormatter().format(_signal(SignalDirection.BUY))
-    assert "🟢 AAPL | شراء (CALL)" in text
+    assert "AAPL — CALL" in text
     assert "84%" in text
     assert "SELL" not in text and "BUY" not in text  # Signal.direction الخام لا يُطبَع كنص
 
 
 def test_signal_formatter_sell_becomes_put() -> None:
     text = SignalFormatter().format(_signal(SignalDirection.SELL))
-    assert "🔴 AAPL | بيع (PUT)" in text
+    assert "AAPL — PUT" in text
 
 
 def test_signal_formatter_estimated_path_marks_values_as_estimated() -> None:
     text = SignalFormatter().format(_signal())
     assert "(تقديري)" in text
-    assert "🎯 Strike:" in text
-    assert "📅 الانتهاء:" in text
+    assert "Strike:" in text and "Exp:" in text
     assert "💵 الدخول:" in text
     assert "🛑 الوقف:" in text
-    assert "🎯 الهدف 1:" in text and "🎯 الهدف 2:" in text
+    assert "🎯 T1:" in text and "🎯 T2:" in text and "🎯 T3:" in text
+    assert "🕒 المتوقع:" in text
     assert "⭐ التقييم:" in text
     assert "📌 السبب:" in text
     assert "⚠️ ادخل فقط إذا كان السعر داخل نطاق الدخول." in text
@@ -88,9 +88,8 @@ def test_signal_formatter_real_option_contract_uses_real_values_not_estimated() 
         bid=0.92, ask=1.12, last=1.02, volume=500, open_interest=1200, implied_volatility=0.35, delta=0.48,
     )
     text = SignalFormatter().format(_signal(SignalDirection.BUY), contract)
-    assert "🎯 Strike: 105" in text
+    assert "Strike: 105 | Exp: 07/08" in text
     assert "💵 الدخول: 0.92 - 1.12$" in text
-    assert "📅 الانتهاء: 07/08" in text
     assert "(تقديري)" not in text
 
 

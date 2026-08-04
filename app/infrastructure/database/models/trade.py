@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, String
+from sqlalchemy import Boolean, DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infrastructure.database.base import BaseModel
@@ -52,6 +52,7 @@ class Trade(BaseModel):
     reasons: Mapped[str] = mapped_column(String(2000), nullable=False)  # reasons مفصولة بـ " | "
 
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN", index=True)  # OPEN/TP1_HIT/TP2_HIT/STOPPED
+    better_entry_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # يسمح بـBetter Entry واحدة فقط لكل صفقة مفتوحة (بطلب صريح)
 
     entry_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     tp1_hit_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

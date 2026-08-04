@@ -24,10 +24,23 @@ get_best_option_contract(): **ليس جزءاً من MarketDataProvider** (ال�
 حقيقية (Strike/Bid/Ask/Last/Volume/OpenInterest/IV) عند توفّرها، تُستدعى
 مباشرة من نقطة التركيب (app/main.py) قبل التنسيق عبر SignalFormatter -
 دون أي حاجة لطبقة OptionsProvider منفصلة في هذه المرحلة المؤقتة.
+
+اختيار تاريخ الانتهاء: يتجنّب انتهاء اليوم نفسه (0DTE) افتراضياً -
+عقود شبه منتهية غالباً بلا سيولة/سعر موثوق - ويختار أقرب تاريخ **لاحق**
+متاح؛ لا شرط أن ينتهي العقد بنفس يوم الإشارة (بطلب صريح - مثال: إشارة
+على AMD يوم إعلان أرباحه غداً تختار عقداً بتاريخ يغطي ذلك، لا عقداً
+ينتهي اليوم). إن لم يوجد تاريخ لاحق، يُستخدَم الأقرب المتاح كما هو.
+
 اختيار "أفضل عقد": تُفحَص **كل** العقود ضمن نطاق قريب من السعر الحالي
 (ATM ± عدة Strike؛ مُطبَّق كنطاق ±15% من السعر - يلتقط عملياً عدة
-Strikes حول ATM لأي رمز نشط)، ثم يُحسَب Option Score (0-100) لكل عقد
-عبر get_best_option_contract -> ScoredOption، ويُختار الأعلى Score.
+Strikes حول ATM لأي رمز نشط)، ثم تُستبعَد العقود بلا Bid/Ask حقيقيين
+(كلاهما صفر = لا سعر سوق فعلي - **لا يُعرَض "سعر حقيقي" وهمي 0.00$
+أبداً**، بطلب صريح) والعقود التي تتجاوز علاوتها (منتصف Bid/Ask) 3$
+(سقف بطلب صريح) - فإن لم يتبقَّ أي عقد ضمن هذين الشرطين تُعيد الدالة
+None (يتراجع الاستدعاء إلى المسار التقديري المُوسَّم بوضوح في
+SignalFormatter بدل عقد حقيقي مضلِّل). من الباقي يُحسَب Option Score
+(0-100) لكل عقد عبر get_best_option_contract -> ScoredOption، ويُختار
+الأعلى Score.
 
 Option Score = مجموع مرجَّح لـ: السيولة (Volume+OpenInterest)، OpenInterest
 وحده، Volume وحده، ضيق فارق Bid/Ask، وIV (تُفضَّل قيمة معتدلة - راجع
@@ -60,6 +73,7 @@ from app.infrastructure.signals.models import SignalDirection
 
 _REFERENCE_SYMBOL_FOR_MARKET_STATUS = "SPY"
 _NEAR_MONEY_BAND_PCT = 0.15  # ابحث عن "أفضل عقد" ضمن ±15% من السعر الحالي فقط (عدة Strikes عملياً)
+_MAX_PREMIUM_USD = 3.0  # سقف علاوة العقد (منتصف Bid/Ask) - بطلب صريح
 
 # أوزان Option Score (0-100) - مجموعها 1.0، موثَّقة صراحة:
 _OPTION_SCORE_WEIGHT_LIQUIDITY = 0.30    # Volume+OpenInterest معاً
@@ -204,7 +218,7 @@ class YahooFinanceProvider(MarketDataProvider):
             logger.info("YahooFinanceProvider.get_best_option_contract: لا توجد بيانات خيارات لـ{}", symbol)
             return None
 
-        expiration = expirations[0]
+        expiration = self._pick_expiration(expirations)
         try:
             chain = ticker.option_chain(expiration)
         except Exception as exc:
@@ -216,14 +230,36 @@ class YahooFinanceProvider(MarketDataProvider):
             return None
 
         table = table.copy()
-        for column in ("volume", "openInterest", "bid", "ask", "impliedVolatility"):
+        for column in ("volume", "openInterest", "bid", "ask", "impliedVolatility", "lastPrice"):
             table[column] = table[column].fillna(0)
 
         low, high = reference_price * (1 - _NEAR_MONEY_BAND_PCT), reference_price * (1 + _NEAR_MONEY_BAND_PCT)
         near_money = table[(table["strike"] >= low) & (table["strike"] <= high)]
         candidates = near_money if not near_money.empty else table
 
-        candidates = candidates.copy()
+        # سعر حقيقي: Bid/Ask حيّان معاً، أو (عند غيابهما - شائع خارج ساعات
+        # التسعير الحيّ في تغذية Yahoo المجانية حتى لعقود عالية السيولة
+        # فعلياً) آخر سعر تداول حقيقي (lastPrice) - أبداً صفر وهمي 0.00$
+        # بلا أي بيانات حقيقية إطلاقاً.
+        has_real_price = candidates[
+            ((candidates["bid"] > 0) & (candidates["ask"] > 0)) | (candidates["lastPrice"] > 0)
+        ]
+        if has_real_price.empty:
+            logger.info("YahooFinanceProvider.get_best_option_contract: لا عقود بسعر حقيقي (Bid/Ask/Last) لـ{}", symbol)
+            return None
+
+        premium = has_real_price.apply(
+            lambda row: (row["bid"] + row["ask"]) / 2 if row["bid"] > 0 and row["ask"] > 0 else row["lastPrice"],
+            axis=1,
+        )
+        affordable = has_real_price[premium <= _MAX_PREMIUM_USD]
+        if affordable.empty:
+            logger.info(
+                "YahooFinanceProvider.get_best_option_contract: كل العقود الحقيقية لـ{} تتجاوز سقف {}$", symbol, _MAX_PREMIUM_USD,
+            )
+            return None
+
+        candidates = affordable.copy()
         candidates["_option_score"] = candidates.apply(
             lambda row: self._option_score(
                 volume=self._safe_float(row["volume"]), open_interest=self._safe_float(row["openInterest"]),
@@ -234,10 +270,16 @@ class YahooFinanceProvider(MarketDataProvider):
         )
         best = candidates.sort_values(by="_option_score", ascending=False).iloc[0]
 
+        best_bid = self._safe_float(best["bid"])
+        best_ask = self._safe_float(best["ask"])
+        best_last = self._safe_float(best["lastPrice"])
+        if best_bid <= 0 and best_ask <= 0:
+            best_bid = best_ask = best_last  # لا Bid/Ask حيّان - آخر سعر تداول حقيقي بدل صفر وهمي
+
         option_type = "CALL" if direction == SignalDirection.BUY else "PUT"
         contract = OptionContract(
             symbol=symbol, option_type=option_type, strike=self._safe_float(best["strike"]), expiration=expiration,
-            bid=self._safe_float(best["bid"]), ask=self._safe_float(best["ask"]), last=self._safe_float(best["lastPrice"]),
+            bid=best_bid, ask=best_ask, last=best_last,
             volume=int(best["volume"]), open_interest=int(best["openInterest"]),
             implied_volatility=self._safe_float(best["impliedVolatility"]),
             # delta غير متوفرة من Yahoo Finance فعلياً - None (لا تُخترَع).
@@ -248,6 +290,20 @@ class YahooFinanceProvider(MarketDataProvider):
             symbol, option_type, contract.strike, expiration, score,
         )
         return ScoredOption(contract=contract, score=score)
+
+    @staticmethod
+    def _pick_expiration(expirations: tuple[str, ...]) -> str:
+        """يتجنّب انتهاء اليوم نفسه (0DTE) افتراضياً - راجع docstring
+        الملف أعلاه. إن لم يوجد تاريخ لاحق صالح، يُستخدَم الأقرب المتاح
+        كما كان (expirations[0]) بدل رفع استثناء."""
+        today = datetime.now(timezone.utc).date()
+        for expiration in expirations:
+            try:
+                if datetime.strptime(expiration, "%Y-%m-%d").date() > today:
+                    return expiration
+            except ValueError:
+                continue
+        return expirations[0]
 
     @classmethod
     def _option_score(
