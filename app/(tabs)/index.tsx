@@ -9,6 +9,8 @@ import { useProfileStore } from '@/src/features/auth/profileStore';
 import { useTodayData } from '@/src/features/today/useTodayData';
 import { getNextTask } from '@/src/features/today/nextTask';
 import { MetricTile } from '@/src/features/today/components/MetricTile';
+import { DailyPromiseCard } from '@/src/features/today/components/DailyPromiseCard';
+import { useDailyPromise } from '@/src/features/today/useDailyPromise';
 import { useTeamData } from '@/src/features/teams/useTeamData';
 
 export default function TodayScreen() {
@@ -17,6 +19,7 @@ export default function TodayScreen() {
   const displayName = useProfileStore((s) => s.profile?.display_name);
   const { summary, isLoading, error, refetch } = useTodayData(userId);
   const { data: team, hasTeam, refetch: refetchTeam } = useTeamData(userId);
+  const { promise, choose: choosePromise, markFulfilled, refetch: refetchPromise } = useDailyPromise(userId);
 
   // إعادة الجلب عند الرجوع من الإضافة السريعة أو أي شاشة أخرى — التبويبات
   // في Expo Router تبقى مثبّتة (لا تُعاد بالكامل) عند التنقل بينها.
@@ -24,7 +27,8 @@ export default function TodayScreen() {
     useCallback(() => {
       refetch();
       refetchTeam();
-    }, [refetch, refetchTeam])
+      refetchPromise();
+    }, [refetch, refetchTeam, refetchPromise])
   );
 
   if (!summary && isLoading) {
@@ -58,6 +62,8 @@ export default function TodayScreen() {
         <View style={{ marginTop: spacing.md }}>
           <Text variant="displayMd">هلا {displayName ?? ''} 👋</Text>
         </View>
+
+        <DailyPromiseCard promise={promise} onChoose={choosePromise} onMarkFulfilled={markFulfilled} />
 
         <Card variant="soft">
           <Text variant="overline" color="textSecondary">

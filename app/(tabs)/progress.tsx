@@ -97,6 +97,26 @@ export default function ProgressScreen() {
             {summary.workoutsThisWeek}
           </Text>
         </Card>
+
+        <Card>
+          <Text variant="overline" color="textSecondary">
+            تقييم هِمّة الأسبوعي
+          </Text>
+          <Text variant="displayLg" color="primary" style={{ marginTop: spacing.xxs }}>
+            {summary.weeklyReview.score} / 10
+          </Text>
+          <View style={{ marginTop: spacing.sm, gap: spacing.xxs }}>
+            <Text variant="body">
+              أقوى نقطة: <Text variant="bodyStrong">{summary.weeklyReview.strongestLabel}</Text>
+            </Text>
+            <Text variant="body">
+              تحتاج اهتمامًا: <Text variant="bodyStrong">{summary.weeklyReview.weakestLabel}</Text>
+            </Text>
+          </View>
+          <Text variant="caption" color="textSecondary" style={{ marginTop: spacing.sm }}>
+            تركيزك للأسبوع القادم: {summary.weeklyReview.focusNextWeekLabel}
+          </Text>
+        </Card>
       </ScrollView>
     </Screen>
   );
