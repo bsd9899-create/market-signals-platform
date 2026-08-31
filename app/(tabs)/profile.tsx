@@ -1,8 +1,9 @@
-import { View } from 'react-native';
+import { useState } from 'react';
+import { Alert, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button, Card, Screen, Text } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
-import { signOut } from '@/src/features/auth/api';
+import { deleteAccount, signOut } from '@/src/features/auth/api';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useProfileStore } from '@/src/features/auth/profileStore';
 import { useHealthSync } from '@/src/integrations/health/useHealthSync';
@@ -12,6 +13,31 @@ export default function ProfileScreen() {
   const userId = useAuthStore((s) => s.session?.user.id);
   const profile = useProfileStore((s) => s.profile);
   const { isAvailable, isSyncing, error, syncToday } = useHealthSync(userId);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  function confirmDeleteAccount() {
+    Alert.alert(
+      'حذف الحساب نهائيًا',
+      'سيُحذف حسابك وكل بياناتك (السجلات، الفرق، الاشتراك) نهائيًا ولا يمكن التراجع. متأكد؟',
+      [
+        { text: 'إلغاء', style: 'cancel' },
+        {
+          text: 'حذف نهائي',
+          style: 'destructive',
+          onPress: async () => {
+            setIsDeleting(true);
+            try {
+              await deleteAccount();
+            } catch (e) {
+              Alert.alert('تعذّر حذف الحساب', e instanceof Error ? e.message : 'حاول مرة أخرى لاحقًا');
+            } finally {
+              setIsDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   return (
     <Screen>
@@ -56,6 +82,12 @@ export default function ProfileScreen() {
         </Card>
 
         <Button label="تسجيل الخروج" variant="ghost" onPress={() => signOut()} />
+        <Button
+          label={isDeleting ? 'جارِ الحذف...' : 'حذف حسابي نهائيًا'}
+          variant="ghost"
+          disabled={isDeleting}
+          onPress={confirmDeleteAccount}
+        />
       </View>
     </Screen>
   );
