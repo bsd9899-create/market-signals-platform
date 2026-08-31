@@ -44,6 +44,14 @@
           "resizeMode": "contain",
           "backgroundColor": "#FBF3EA"
         }
+      ],
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "تستخدم هِمّة بيانات صحتك (الخطوات، التمارين، النوم، الوزن) لمساعدتك على متابعة تقدمك اليومي — بموافقتك فقط ولكل نوع بيانات على حدة.",
+          "NSHealthUpdateUsageDescription": false,
+          "background": false
+        }
       ]
     ]
   }
