@@ -50,6 +50,7 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
+        <Button label="تعديل ملفي" variant="secondary" onPress={() => router.push('/profile-edit')} />
         <Button label="رفيق هِمّة 🤝" variant="secondary" onPress={() => router.push('/accountability')} />
         <Button label="هِمّة+ ✨" variant="secondary" onPress={() => router.push('/paywall')} />
 

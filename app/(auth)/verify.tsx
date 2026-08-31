@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Button, Screen, Text, TextField } from '@/src/design-system';
@@ -6,12 +6,21 @@ import { spacing } from '@/src/design-system/spacing';
 import { requestEmailOtp, verifyEmailOtp } from '@/src/features/auth/api';
 import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
+const RESEND_COOLDOWN_SECONDS = 30;
+
 export default function VerifyScreen() {
   const { email } = useLocalSearchParams<{ email: string }>();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown((c) => Math.max(0, c - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   async function handleVerify() {
     if (!email) return;
@@ -35,11 +44,12 @@ export default function VerifyScreen() {
   }
 
   async function handleResend() {
-    if (!email) return;
+    if (!email || cooldown > 0) return;
     setIsResending(true);
     setError(null);
     try {
       await requestEmailOtp(email);
+      setCooldown(RESEND_COOLDOWN_SECONDS);
     } catch (e) {
       setError(getFriendlyErrorMessage(e, 'تعذّر إعادة الإرسال'));
     } finally {
@@ -79,10 +89,10 @@ export default function VerifyScreen() {
             disabled={isSubmitting}
           />
           <Button
-            label={isResending ? 'جارِ الإرسال...' : 'إعادة إرسال الرمز'}
+            label={isResending ? 'جارِ الإرسال...' : cooldown > 0 ? `أعد الإرسال بعد ${cooldown} ثانية` : 'إعادة إرسال الرمز'}
             variant="ghost"
             onPress={handleResend}
-            disabled={isResending}
+            disabled={isResending || cooldown > 0}
           />
         </View>
       </KeyboardAvoidingView>
