@@ -1,12 +1,103 @@
-import { Screen, Text } from '@/src/design-system';
+import { useCallback } from 'react';
+import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { Card, Screen, Text } from '@/src/design-system';
+import { colors } from '@/src/design-system';
+import { spacing } from '@/src/design-system/spacing';
+import { useAuthStore } from '@/src/features/auth/store';
+import { useProgressData } from '@/src/features/progress/useProgressData';
+import { WeeklyBarChart } from '@/src/features/progress/components/WeeklyBarChart';
 
 export default function ProgressScreen() {
+  const userId = useAuthStore((s) => s.session?.user.id);
+  const { summary, isLoading, error, refetch } = useProgressData(userId);
+
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
+
+  if (!summary && isLoading) {
+    return (
+      <Screen style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={colors.primary} />
+      </Screen>
+    );
+  }
+
+  if (!summary) {
+    return (
+      <Screen style={{ alignItems: 'center', justifyContent: 'center' }}>
+        <Text variant="body" color="textSecondary">
+          {error ?? 'تعذّر تحميل التقدم'}
+        </Text>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
-      <Text variant="title">تقدمي</Text>
-      <Text variant="body" color="textSecondary" style={{ marginTop: 8 }}>
-        الإحصائيات والرسوم البيانية تُبنى في المرحلة 6.
-      </Text>
+      <ScrollView
+        contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.xxxl }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={colors.primary} />}
+      >
+        <Text variant="displayMd" style={{ marginTop: spacing.md }}>
+          تقدمي
+        </Text>
+
+        <Card>
+          <Text variant="overline" color="textSecondary">
+            آخر 7 أيام
+          </Text>
+          <View style={{ marginTop: spacing.md }}>
+            <WeeklyBarChart history={summary.history} days={7} />
+          </View>
+        </Card>
+
+        <View style={{ flexDirection: 'row-reverse', gap: spacing.sm }}>
+          <Card variant="soft" style={{ flex: 1 }}>
+            <Text variant="caption" color="textSecondary">
+              الوزن الحالي
+            </Text>
+            <Text variant="title" style={{ marginTop: spacing.xxs }}>
+              {summary.weightNowKg !== null ? `${summary.weightNowKg} كجم` : '—'}
+            </Text>
+            {summary.weightDeltaKg !== null ? (
+              <Text
+                variant="caption"
+                color={summary.weightDeltaKg <= 0 ? 'success' : 'textSecondary'}
+                style={{ marginTop: spacing.xxs }}
+              >
+                {summary.weightDeltaKg > 0 ? '+' : ''}
+                {summary.weightDeltaKg} كجم آخر 30 يوم
+              </Text>
+            ) : null}
+          </Card>
+
+          <Card variant="soft" style={{ flex: 1 }}>
+            <Text variant="caption" color="textSecondary">
+              متوسط الخطوات
+            </Text>
+            <Text variant="title" style={{ marginTop: spacing.xxs }}>
+              {summary.averageSteps.toLocaleString('ar')}
+            </Text>
+            <Text variant="caption" color="textSecondary" style={{ marginTop: spacing.xxs }}>
+              آخر 7 أيام
+            </Text>
+          </Card>
+        </View>
+
+        <Card variant="soft">
+          <Text variant="caption" color="textSecondary">
+            التمارين هذا الأسبوع
+          </Text>
+          <Text variant="title" style={{ marginTop: spacing.xxs }}>
+            {summary.workoutsThisWeek}
+          </Text>
+        </Card>
+      </ScrollView>
     </Screen>
   );
 }
