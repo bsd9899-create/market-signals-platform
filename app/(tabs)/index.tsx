@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Button, Card, ProgressBar, Screen, Text, colors } from '@/src/design-system';
+import { Button, Card, ProgressRing, Screen, Text, TodaySkeleton, colors, palette } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useProfileStore } from '@/src/features/auth/profileStore';
@@ -11,6 +11,7 @@ import { MetricTile } from '@/src/features/today/components/MetricTile';
 import { DailyPromiseCard } from '@/src/features/today/components/DailyPromiseCard';
 import { useDailyPromise } from '@/src/features/today/useDailyPromise';
 import { useTeamData } from '@/src/features/teams/useTeamData';
+import { getTimeGreeting } from '@/src/lib/greeting';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -39,8 +40,8 @@ export default function TodayScreen() {
 
   if (!summary && isLoading) {
     return (
-      <Screen edges={['top']} style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={colors.primary} />
+      <Screen edges={['top']}>
+        <TodaySkeleton />
       </Screen>
     );
   }
@@ -66,7 +67,9 @@ export default function TodayScreen() {
         refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={colors.primary} />}
       >
         <View style={{ marginTop: spacing.md }}>
-          <Text variant="displayMd">هلا {displayName ?? ''} 👋</Text>
+          <Text variant="displayMd">
+            {getTimeGreeting()} {displayName ?? ''} 👋
+          </Text>
         </View>
 
         <DailyPromiseCard
@@ -77,26 +80,32 @@ export default function TodayScreen() {
           onMarkFulfilled={markFulfilled}
         />
 
-        <Card variant="soft">
-          <Text variant="overline" color="textSecondary">
-            قرار اليوم
-          </Text>
-          <Text variant="title" style={{ marginTop: spacing.xxs }}>
-            {summary.decisionText}
-          </Text>
-        </Card>
-
-        <Card>
-          <Text variant="caption" color="textSecondary">
-            إنجاز اليوم
-          </Text>
-          <Text variant="displayLg" color="primary" style={{ marginTop: spacing.xxs }}>
-            {summary.completionPercent}%
-          </Text>
-          <View style={{ marginTop: spacing.sm }}>
-            <ProgressBar progress={summary.completionPercent / 100} />
+        {/* البطاقة الرئيسية — قرار اليوم وإنجاز اليوم معًا، تجيب فورًا على
+            "كيف وضعي؟" بدون تفريق بصري بين رقمين مرتبطين بنفس الفكرة. */}
+        <Card variant={summary.recoveryMode ? 'soft' : 'surface'}>
+          <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: spacing.md }}>
+            <View style={{ flex: 1, gap: spacing.xxs }}>
+              <Text variant="overline" color="textSecondary">
+                {summary.recoveryMode ? 'وضع الإنقاذ 🌱' : 'قرار اليوم'}
+              </Text>
+              <Text variant="title">{summary.decisionText}</Text>
+            </View>
+            <ProgressRing
+              progress={summary.completionPercent / 100}
+              size={92}
+              strokeWidth={9}
+              fillColor={summary.completionPercent >= 90 ? palette.gold500 : colors.primary}
+            >
+              <Text variant="title" color={summary.completionPercent >= 90 ? 'accent' : 'primary'}>
+                {summary.completionPercent}%
+              </Text>
+            </ProgressRing>
           </View>
         </Card>
+
+        <Text variant="overline" color="textSecondary" style={{ marginTop: spacing.xs }}>
+          أساسيات اليوم
+        </Text>
 
         <View style={{ flexDirection: 'row-reverse', gap: spacing.sm }}>
           <MetricTile

@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { Button, Card, Screen, Text, colors } from '@/src/design-system';
+import { Button, Card, ProgressSkeleton, Screen, Text, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useProgressData } from '@/src/features/progress/useProgressData';
@@ -19,8 +19,8 @@ export default function ProgressScreen() {
 
   if (!summary && isLoading) {
     return (
-      <Screen style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={colors.primary} />
+      <Screen>
+        <ProgressSkeleton />
       </Screen>
     );
   }

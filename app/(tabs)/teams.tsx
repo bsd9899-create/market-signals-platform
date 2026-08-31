@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
-import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Button, Card, ProgressBar, Screen, Text, colors } from '@/src/design-system';
+import { Button, Card, ProgressBar, Screen, Text, TeamsSkeleton, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useTeamData } from '@/src/features/teams/useTeamData';
@@ -19,8 +19,8 @@ export default function TeamsScreen() {
 
   if (hasTeam === null && isLoading) {
     return (
-      <Screen style={{ alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={colors.primary} />
+      <Screen>
+        <TeamsSkeleton />
       </Screen>
     );
   }
@@ -90,15 +90,17 @@ export default function TeamsScreen() {
                 style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center' }}
               >
                 <View style={{ flexDirection: 'row-reverse', alignItems: 'center', gap: spacing.sm }}>
-                  <Text variant="bodyStrong" color="textSecondary">
-                    #{index + 1}
+                  <Text variant="bodyStrong" color={index === 0 ? 'accent' : 'textSecondary'}>
+                    {index === 0 ? '🥇' : `#${index + 1}`}
                   </Text>
                   <Text variant="body">
                     {row.display_name}
                     {row.user_id === userId ? ' (أنت)' : ''}
                   </Text>
                 </View>
-                <Text variant="bodyStrong">{row.total_points}</Text>
+                <Text variant="bodyStrong" color={index === 0 ? 'accent' : 'textPrimary'}>
+                  {row.total_points}
+                </Text>
               </View>
             ))}
           </View>
