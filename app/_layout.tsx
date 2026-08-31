@@ -63,6 +63,7 @@ export default function RootLayout() {
           <Stack.Screen name="teams/join" options={{ presentation: 'modal' }} />
           <Stack.Screen name="teams/new-challenge" options={{ presentation: 'modal' }} />
           <Stack.Screen name="accountability/index" />
+          <Stack.Screen name="paywall" options={{ presentation: 'modal' }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -19,6 +19,7 @@ export default function ProfileScreen() {
           </Text>
         </View>
         <Button label="رفيق هِمّة 🤝" variant="secondary" onPress={() => router.push('/accountability')} />
+        <Button label="هِمّة+ ✨" variant="secondary" onPress={() => router.push('/paywall')} />
         <Button label="تسجيل الخروج" variant="ghost" onPress={() => signOut()} />
       </View>
     </Screen>
