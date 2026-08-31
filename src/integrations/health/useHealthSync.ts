@@ -10,6 +10,7 @@ import {
   isHealthKitAvailable,
   requestHealthPermissions,
 } from './healthkit';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 /**
  * مزامنة يدوية (يبدأها المستخدم بنفسه، وليست تلقائية) — حتى نتحقق من
@@ -57,7 +58,7 @@ export function useHealthSync(userId: string | undefined) {
 
       setLastActiveEnergyKcal(activeEnergy);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّرت المزامنة مع Apple Health');
+      setError(getFriendlyErrorMessage(e, 'تعذّرت المزامنة مع Apple Health'));
     } finally {
       setIsSyncing(false);
     }

@@ -32,7 +32,9 @@ export function useAuthGate() {
       clearProfile();
     }
     // session?.user.id بدل session نفسها — الكائن يتغيّر مرجعيًا مع كل
-    // تجديد توكن تلقائي حتى لو بقي نفس المستخدم.
+    // تجديد توكن تلقائي حتى لو بقي نفس المستخدم، وإضافته للاعتماديات
+    // ستُعيد جلب الملف الشخصي بلا داعٍ عند كل تجديد صامت للتوكن.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitializing, session?.user.id, fetchProfile, clearProfile]);
 
   const isReady = !isInitializing && (!session || hasProfileLoaded);

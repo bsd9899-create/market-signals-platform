@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { Button, Screen, Text, TextField, Wordmark } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { requestEmailOtp } from '@/src/features/auth/api';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 const emailSchema = z.string().trim().email('أدخل بريدًا إلكترونيًا صحيحًا');
 
@@ -27,7 +28,7 @@ export default function SignInScreen() {
       await requestEmailOtp(result.data);
       router.push({ pathname: '/(auth)/verify', params: { email: result.data } });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر إرسال رمز الدخول، حاول مرة أخرى');
+      setError(getFriendlyErrorMessage(e, 'تعذّر إرسال رمز الدخول، حاول مرة أخرى'));
     } finally {
       setIsSubmitting(false);
     }

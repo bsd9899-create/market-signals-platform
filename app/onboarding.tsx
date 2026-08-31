@@ -3,10 +3,10 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { GoalType } from '@/src/data/database.types';
 import { profileRepository } from '@/src/data/repositories/profileRepository';
-import { Button, Card, Screen, Text, TextField } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Button, Card, Screen, Text, TextField, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useProfileStore } from '@/src/features/auth/profileStore';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 const GOAL_OPTIONS: { value: GoalType; label: string; emoji: string }[] = [
   { value: 'lose_weight', label: 'التنحيف', emoji: '🔥' },
@@ -45,7 +45,7 @@ export default function OnboardingScreen() {
       await fetchProfile();
       router.replace('/(tabs)');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر الحفظ، حاول مرة أخرى');
+      setError(getFriendlyErrorMessage(e, 'تعذّر الحفظ، حاول مرة أخرى'));
     } finally {
       setIsSubmitting(false);
     }

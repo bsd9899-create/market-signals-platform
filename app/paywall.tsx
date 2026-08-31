@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { PurchasesPackage } from 'react-native-purchases';
-import { Button, Card, Screen, Text } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Button, Card, Screen, Text, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { getCurrentOfferingPackages, isRevenueCatConfigured, purchasePackage, restorePurchases } from '@/src/subscriptions/revenuecat';
 import { usePremiumStatus } from '@/src/subscriptions/usePremiumStatus';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 export default function PaywallScreen() {
   const router = useRouter();
@@ -21,12 +21,13 @@ export default function PaywallScreen() {
 
   useEffect(() => {
     if (!isRevenueCatConfigured) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- لا يوجد جلب بيانات لننتظره هنا أصلاً
       setIsLoading(false);
       return;
     }
     getCurrentOfferingPackages()
       .then(setPackages)
-      .catch((e) => setError(e instanceof Error ? e.message : 'تعذّر تحميل الخطط'))
+      .catch((e) => setError(getFriendlyErrorMessage(e, 'تعذّر تحميل الخطط')))
       .finally(() => setIsLoading(false));
   }, []);
 
@@ -38,7 +39,7 @@ export default function PaywallScreen() {
       await refresh();
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر إتمام الشراء');
+      setError(getFriendlyErrorMessage(e, 'تعذّر إتمام الشراء'));
     } finally {
       setBusyPackageId(null);
     }
@@ -51,7 +52,7 @@ export default function PaywallScreen() {
       await refresh();
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر استعادة المشتريات');
+      setError(getFriendlyErrorMessage(e, 'تعذّر استعادة المشتريات'));
     }
   }
 

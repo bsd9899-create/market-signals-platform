@@ -29,6 +29,9 @@ export function usePremiumStatus(userId: string | undefined) {
   }, [userId]);
 
   useEffect(() => {
+    // جلب أولي عند التركيب (يستدعي setIsLoading داخل refresh) — نمط
+    // قياسي ومختبَر في هذا المشروع، وليس اشتقاق حالة من props.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh();
     if (!isRevenueCatConfigured) return;
 

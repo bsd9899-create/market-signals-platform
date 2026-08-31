@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Button, Screen, Text, TextField } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Button, Screen, Text, TextField, colors } from '@/src/design-system';
 import { radius, spacing } from '@/src/design-system/spacing';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 type NumericLogFormProps = {
   title: string;
@@ -46,7 +46,7 @@ export function NumericLogForm({
       await onSubmit(raw);
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر الحفظ، حاول مرة أخرى');
+      setError(getFriendlyErrorMessage(e, 'تعذّر الحفظ، حاول مرة أخرى'));
     } finally {
       setIsSubmitting(false);
     }

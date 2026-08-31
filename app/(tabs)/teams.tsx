@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Button, Card, ProgressBar, Screen, Text } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Button, Card, ProgressBar, Screen, Text, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useTeamData } from '@/src/features/teams/useTeamData';
@@ -45,10 +44,11 @@ export default function TeamsScreen() {
 
   if (!data) {
     return (
-      <Screen style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <Screen style={{ alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
         <Text variant="body" color="textSecondary">
           {error ?? 'تعذّر تحميل الفريق'}
         </Text>
+        <Button label="إعادة المحاولة" variant="secondary" onPress={refetch} />
       </Screen>
     );
   }

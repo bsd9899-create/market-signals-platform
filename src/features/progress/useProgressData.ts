@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { progressRepository } from '@/src/data/repositories/progressRepository';
 import { goalsRepository } from '@/src/data/repositories/goalsRepository';
 import { computeWeeklyReview, type WeeklyReview } from '@/src/domain/weeklyReview';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 const HISTORY_DAYS = 7;
 
@@ -53,13 +54,16 @@ export function useProgressData(userId: string | undefined) {
         weeklyReview,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر تحميل التقدم');
+      setError(getFriendlyErrorMessage(e, 'تعذّر تحميل التقدم'));
     } finally {
       setIsLoading(false);
     }
   }, [userId]);
 
   useEffect(() => {
+    // جلب أولي عند التركيب (يستدعي setIsLoading داخل load) — نمط قياسي
+    // ومختبَر في هذا المشروع، وليس اشتقاق حالة من props.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

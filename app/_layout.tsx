@@ -28,7 +28,11 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
+    // فحص لمرة واحدة فقط عند الإقلاع لحالة نظام خارجية (I18nManager)
+    // وليس اشتقاق حالة من props/state — إعادة الهيكلة لتفادي هذا التحذير
+    // ستضيف تعقيدًا (microtask وهمي) بلا أي فائدة فعلية هنا.
     if (ensureRTL()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsRestarting(true);
     }
   }, []);

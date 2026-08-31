@@ -7,6 +7,7 @@ import { deleteAccount, signOut } from '@/src/features/auth/api';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useProfileStore } from '@/src/features/auth/profileStore';
 import { useHealthSync } from '@/src/integrations/health/useHealthSync';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -29,7 +30,7 @@ export default function ProfileScreen() {
             try {
               await deleteAccount();
             } catch (e) {
-              Alert.alert('تعذّر حذف الحساب', e instanceof Error ? e.message : 'حاول مرة أخرى لاحقًا');
+              Alert.alert('تعذّر حذف الحساب', getFriendlyErrorMessage(e, 'حاول مرة أخرى لاحقًا'));
             } finally {
               setIsDeleting(false);
             }

@@ -5,6 +5,7 @@ import { dailyLogsRepository } from '@/src/data/repositories/dailyLogsRepository
 import { Button, Screen, Text, TextField } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 export default function LogWorkoutScreen() {
   const router = useRouter();
@@ -33,7 +34,7 @@ export default function LogWorkoutScreen() {
       await dailyLogsRepository.addWorkout(userId, { title: title.trim(), durationMinutes: Math.round(minutes) });
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر الحفظ، حاول مرة أخرى');
+      setError(getFriendlyErrorMessage(e, 'تعذّر الحفظ، حاول مرة أخرى'));
     } finally {
       setIsSubmitting(false);
     }

@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Button, Card, ProgressBar, Screen, Text } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Button, Card, ProgressBar, Screen, Text, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useProfileStore } from '@/src/features/auth/profileStore';
@@ -19,7 +18,14 @@ export default function TodayScreen() {
   const displayName = useProfileStore((s) => s.profile?.display_name);
   const { summary, isLoading, error, refetch } = useTodayData(userId);
   const { data: team, hasTeam, refetch: refetchTeam } = useTeamData(userId);
-  const { promise, choose: choosePromise, markFulfilled, refetch: refetchPromise } = useDailyPromise(userId);
+  const {
+    promise,
+    isSaving: isPromiseSaving,
+    error: promiseError,
+    choose: choosePromise,
+    markFulfilled,
+    refetch: refetchPromise,
+  } = useDailyPromise(userId);
 
   // إعادة الجلب عند الرجوع من الإضافة السريعة أو أي شاشة أخرى — التبويبات
   // في Expo Router تبقى مثبّتة (لا تُعاد بالكامل) عند التنقل بينها.
@@ -63,7 +69,13 @@ export default function TodayScreen() {
           <Text variant="displayMd">هلا {displayName ?? ''} 👋</Text>
         </View>
 
-        <DailyPromiseCard promise={promise} onChoose={choosePromise} onMarkFulfilled={markFulfilled} />
+        <DailyPromiseCard
+          promise={promise}
+          isSaving={isPromiseSaving}
+          error={promiseError}
+          onChoose={choosePromise}
+          onMarkFulfilled={markFulfilled}
+        />
 
         <Card variant="soft">
           <Text variant="overline" color="textSecondary">

@@ -3,6 +3,7 @@ import { dailyLogsRepository } from '@/src/data/repositories/dailyLogsRepository
 import { dailyProgressRepository } from '@/src/data/repositories/dailyProgressRepository';
 import { goalsRepository, type UserGoals } from '@/src/data/repositories/goalsRepository';
 import { computeTodayDecision, type TodayDecision } from '@/src/domain/decisionEngine';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 /** "يوم تمرين كامل" مرجعي لحساب نسبة إنجاز التمرين — لا يوجد هدف تمرين يومي بالدقائق في user_goals (الهدف أسبوعي بعدد الأيام). */
 const REFERENCE_WORKOUT_MINUTES = 30;
@@ -63,13 +64,16 @@ export function useTodayData(userId: string | undefined) {
         goals,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر تحميل بيانات اليوم');
+      setError(getFriendlyErrorMessage(e, 'تعذّر تحميل بيانات اليوم'));
     } finally {
       setIsLoading(false);
     }
   }, [userId]);
 
   useEffect(() => {
+    // جلب أولي عند التركيب (يستدعي setIsLoading داخل load) — نمط قياسي
+    // ومختبَر في هذا المشروع، وليس اشتقاق حالة من props.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

@@ -6,7 +6,6 @@ import { env, isSupabaseConfigured } from '@/src/lib/env';
 import type { Database } from './database.types';
 
 if (!isSupabaseConfigured) {
-  // eslint-disable-next-line no-console
   console.warn(
     '[supabase] EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_ANON_KEY غير معرَّفة. ' +
       'انسخ .env.example إلى .env وأضف قيم مشروع Supabase الحقيقي — كل ميزات ' +

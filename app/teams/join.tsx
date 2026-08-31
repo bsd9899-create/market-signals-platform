@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { teamsRepository } from '@/src/data/repositories/teamsRepository';
 import { Button, Screen, Text, TextField } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 export default function JoinTeamScreen() {
   const router = useRouter();
@@ -24,7 +25,7 @@ export default function JoinTeamScreen() {
       await teamsRepository.joinByCode(code.trim());
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'كود الدعوة غير صحيح');
+      setError(getFriendlyErrorMessage(e, 'كود الدعوة غير صحيح'));
     } finally {
       setIsSubmitting(false);
     }

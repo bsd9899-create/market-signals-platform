@@ -7,6 +7,7 @@ import {
   type TeamLeaderboardRow,
   type TeamRosterRow,
 } from '@/src/data/repositories/teamsRepository';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 export type ChallengeWithProgress = Challenge & { myProgressPercent: number };
 
@@ -69,13 +70,16 @@ export function useTeamData(userId: string | undefined) {
         challenges: challengesWithProgress,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر تحميل بيانات الفريق');
+      setError(getFriendlyErrorMessage(e, 'تعذّر تحميل بيانات الفريق'));
     } finally {
       setIsLoading(false);
     }
   }, [userId]);
 
   useEffect(() => {
+    // جلب أولي عند التركيب (يستدعي setIsLoading داخل load) — نمط قياسي
+    // ومختبَر في هذا المشروع، وليس اشتقاق حالة من props.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 

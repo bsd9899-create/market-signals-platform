@@ -1,8 +1,7 @@
 import { useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { Card, Screen, Text } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Button, Card, Screen, Text, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useProgressData } from '@/src/features/progress/useProgressData';
@@ -28,13 +27,17 @@ export default function ProgressScreen() {
 
   if (!summary) {
     return (
-      <Screen style={{ alignItems: 'center', justifyContent: 'center' }}>
+      <Screen style={{ alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
         <Text variant="body" color="textSecondary">
           {error ?? 'تعذّر تحميل التقدم'}
         </Text>
+        <Button label="إعادة المحاولة" variant="secondary" onPress={refetch} />
       </Screen>
     );
   }
+
+  const hasAnyActivity =
+    summary.workoutsThisWeek > 0 || summary.weightNowKg !== null || summary.history.some((h) => h.completion_percent > 0);
 
   return (
     <Screen>
@@ -46,6 +49,14 @@ export default function ProgressScreen() {
         <Text variant="displayMd" style={{ marginTop: spacing.md }}>
           تقدمي
         </Text>
+
+        {!hasAnyActivity ? (
+          <Card variant="soft">
+            <Text variant="body" color="textSecondary">
+              ما سجّلت شيئًا بعد هالأسبوع — أول إدخال (ماء، خطوات، تمرين...) بيبدأ يبني تقدمك هنا.
+            </Text>
+          </Card>
+        ) : null}
 
         <Card>
           <Text variant="overline" color="textSecondary">

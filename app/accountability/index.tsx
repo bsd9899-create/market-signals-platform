@@ -1,6 +1,5 @@
 import { ActivityIndicator, ScrollView, View } from 'react-native';
-import { Button, Card, Screen, Text } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Button, Card, Screen, Text, colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useTeamData } from '@/src/features/teams/useTeamData';
@@ -24,10 +23,13 @@ export default function AccountabilityScreen() {
     isIncomingRequest,
     isOutgoingRequest,
     isLoading,
+    isActing,
+    error,
     sendRequest,
     respond,
     endPair,
     sendPing,
+    refetch,
   } = useAccountability(userId);
 
   function nameOf(id: string | null) {
@@ -39,6 +41,19 @@ export default function AccountabilityScreen() {
     return (
       <Screen style={{ alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator color={colors.primary} />
+      </Screen>
+    );
+  }
+
+  // خطأ في التحميل الأولي (وليس "لا يوجد رفيق بعد") — لا نعرض شاشة
+  // الاختيار في هذه الحالة، لأنها قد توهم المستخدم بأن كل شيء طبيعي.
+  if (error && !pair) {
+    return (
+      <Screen style={{ alignItems: 'center', justifyContent: 'center', gap: spacing.sm }}>
+        <Text variant="body" color="textSecondary">
+          {error}
+        </Text>
+        <Button label="إعادة المحاولة" variant="secondary" onPress={refetch} />
       </Screen>
     );
   }
@@ -68,7 +83,12 @@ export default function AccountabilityScreen() {
                       style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', alignItems: 'center' }}
                     >
                       <Text variant="body">{member.display_name}</Text>
-                      <Button label="اطلب" variant="secondary" onPress={() => sendRequest(member.user_id)} />
+                      <Button
+                        label="اطلب"
+                        variant="secondary"
+                        disabled={isActing}
+                        onPress={() => sendRequest(member.user_id)}
+                      />
                     </View>
                   ))}
               </View>
@@ -83,7 +103,7 @@ export default function AccountabilityScreen() {
         {isOutgoingRequest && (
           <Card variant="soft">
             <Text variant="body">بانتظار رد {nameOf(otherUserId)}...</Text>
-            <Button label="إلغاء الطلب" variant="ghost" style={{ marginTop: spacing.sm }} onPress={endPair} />
+            <Button label="إلغاء الطلب" variant="ghost" disabled={isActing} style={{ marginTop: spacing.sm }} onPress={endPair} />
           </Card>
         )}
 
@@ -91,8 +111,8 @@ export default function AccountabilityScreen() {
           <Card variant="soft">
             <Text variant="bodyStrong">{nameOf(otherUserId)} يريد أن يكون رفيق هِمّة معك</Text>
             <View style={{ flexDirection: 'row-reverse', gap: spacing.sm, marginTop: spacing.sm }}>
-              <Button label="قبول" onPress={() => respond(true)} style={{ flex: 1 }} />
-              <Button label="رفض" variant="secondary" onPress={() => respond(false)} style={{ flex: 1 }} />
+              <Button label="قبول" disabled={isActing} onPress={() => respond(true)} style={{ flex: 1 }} />
+              <Button label="رفض" variant="secondary" disabled={isActing} onPress={() => respond(false)} style={{ flex: 1 }} />
             </View>
           </Card>
         )}
@@ -112,6 +132,7 @@ export default function AccountabilityScreen() {
                     key={option.kind}
                     label={option.label}
                     variant="secondary"
+                    disabled={isActing}
                     onPress={() => sendPing(option.kind)}
                   />
                 ))}
@@ -138,9 +159,15 @@ export default function AccountabilityScreen() {
               </View>
             </Card>
 
-            <Button label="إنهاء الشراكة" variant="ghost" onPress={endPair} />
+            <Button label="إنهاء الشراكة" variant="ghost" disabled={isActing} onPress={endPair} />
           </>
         )}
+
+        {error && pair ? (
+          <Text variant="caption" color="danger" style={{ textAlign: 'center' }}>
+            {error}
+          </Text>
+        ) : null}
       </ScrollView>
     </Screen>
   );

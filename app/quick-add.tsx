@@ -1,8 +1,7 @@
 import type { Href } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Screen, Text } from '@/src/design-system';
-import { colors } from '@/src/design-system';
+import { Screen, Text, colors } from '@/src/design-system';
 import { radius, spacing } from '@/src/design-system/spacing';
 
 const QUICK_ADD_OPTIONS: { emoji: string; label: string; href: Href }[] = [

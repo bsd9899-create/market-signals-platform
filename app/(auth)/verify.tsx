@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { Button, Screen, Text, TextField } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { requestEmailOtp, verifyEmailOtp } from '@/src/features/auth/api';
+import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
 export default function VerifyScreen() {
-  const router = useRouter();
   const { email } = useLocalSearchParams<{ email: string }>();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +28,7 @@ export default function VerifyScreen() {
       // يتولى الانتقال للمكان الصحيح (Onboarding أو الرئيسية).
       await verifyEmailOtp(email, code.trim());
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'رمز غير صحيح، حاول مرة أخرى');
+      setError(getFriendlyErrorMessage(e, 'رمز غير صحيح، حاول مرة أخرى'));
     } finally {
       setIsSubmitting(false);
     }
@@ -41,7 +41,7 @@ export default function VerifyScreen() {
     try {
       await requestEmailOtp(email);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذّر إعادة الإرسال');
+      setError(getFriendlyErrorMessage(e, 'تعذّر إعادة الإرسال'));
     } finally {
       setIsResending(false);
     }
