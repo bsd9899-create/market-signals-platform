@@ -9,19 +9,22 @@ import { useProfileStore } from '@/src/features/auth/profileStore';
 import { useTodayData } from '@/src/features/today/useTodayData';
 import { getNextTask } from '@/src/features/today/nextTask';
 import { MetricTile } from '@/src/features/today/components/MetricTile';
+import { useTeamData } from '@/src/features/teams/useTeamData';
 
 export default function TodayScreen() {
   const router = useRouter();
   const userId = useAuthStore((s) => s.session?.user.id);
   const displayName = useProfileStore((s) => s.profile?.display_name);
   const { summary, isLoading, error, refetch } = useTodayData(userId);
+  const { data: team, hasTeam, refetch: refetchTeam } = useTeamData(userId);
 
   // إعادة الجلب عند الرجوع من الإضافة السريعة أو أي شاشة أخرى — التبويبات
   // في Expo Router تبقى مثبّتة (لا تُعاد بالكامل) عند التنقل بينها.
   useFocusEffect(
     useCallback(() => {
       refetch();
-    }, [refetch])
+      refetchTeam();
+    }, [refetch, refetchTeam])
   );
 
   if (!summary && isLoading) {
@@ -123,21 +126,34 @@ export default function TodayScreen() {
           ) : null}
         </Card>
 
-        {/* TODO(المرحلة 7): تُستبدل هذه البطاقة بنبض الفريق الحقيقي (team_pulse_daily)
-            والترتيب بمجرد بناء ميزة الفرق — حاليًا كل مستخدم بلا فريق فعليًا. */}
         <Card variant="soft">
           <Text variant="overline" color="textSecondary">
             مع فريقك
           </Text>
-          <Text variant="body" color="textSecondary" style={{ marginTop: spacing.xs }}>
-            ما انضممت لفريق بعد — أنشئ فريقك أو انضم لصديق لتتحفزوا مع بعض.
-          </Text>
-          <Button
-            label="اذهب إلى الفرق"
-            variant="secondary"
-            style={{ marginTop: spacing.sm }}
-            onPress={() => router.push('/(tabs)/teams')}
-          />
+          {hasTeam && team ? (
+            <>
+              <Text variant="bodyStrong" style={{ marginTop: spacing.xs }}>
+                نبض الفريق: {team.pulsePercent ?? 0}%
+              </Text>
+              {team.myRank ? (
+                <Text variant="caption" color="textSecondary" style={{ marginTop: spacing.xxs }}>
+                  أنت المركز #{team.myRank}
+                </Text>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <Text variant="body" color="textSecondary" style={{ marginTop: spacing.xs }}>
+                ما انضممت لفريق بعد — أنشئ فريقك أو انضم لصديق لتتحفزوا مع بعض.
+              </Text>
+              <Button
+                label="اذهب إلى الفرق"
+                variant="secondary"
+                style={{ marginTop: spacing.sm }}
+                onPress={() => router.push('/(tabs)/teams')}
+              />
+            </>
+          )}
         </Card>
       </ScrollView>
     </Screen>

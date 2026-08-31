@@ -50,6 +50,23 @@ export const progressRepository = {
     return count ?? 0;
   },
 
+  /** متوسط إنجاز اليوم بين تاريخين (لحساب تقدم التحدي) — لا يتجاوز اليوم الحالي. */
+  async getAverageCompletionInRange(userId: string, startDate: string, endDate: string) {
+    const cappedEnd = endDate > toDateKey() ? toDateKey() : endDate;
+
+    const { data, error } = await supabase
+      .from('daily_progress')
+      .select('completion_percent')
+      .eq('user_id', userId)
+      .gte('date', startDate)
+      .lte('date', cappedEnd);
+    if (error) throw error;
+
+    const rows = data ?? [];
+    if (rows.length === 0) return 0;
+    return Math.round(rows.reduce((sum, r) => sum + r.completion_percent, 0) / rows.length);
+  },
+
   async getAverageSteps(userId: string, days: number) {
     const since = new Date();
     since.setDate(since.getDate() - (days - 1));
