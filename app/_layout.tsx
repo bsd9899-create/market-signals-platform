@@ -1,0 +1,55 @@
+import { useEffect, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Stack } from 'expo-router';
+import * as SplashScreen from 'expo-splash-screen';
+import {
+  useFonts,
+  Tajawal_400Regular,
+  Tajawal_500Medium,
+  Tajawal_700Bold,
+  Tajawal_800ExtraBold,
+} from '@expo-google-fonts/tajawal';
+import { colors } from '@/src/design-system';
+import { ensureRTL } from '@/src/lib/rtl';
+
+SplashScreen.preventAutoHideAsync().catch(() => {
+  // لا شيء نفعله لو فشل — بعض بيئات التشغيل (Web) لا تدعمه.
+});
+
+export default function RootLayout() {
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [fontsLoaded, fontsError] = useFonts({
+    Tajawal_400Regular,
+    Tajawal_500Medium,
+    Tajawal_700Bold,
+    Tajawal_800ExtraBold,
+  });
+
+  useEffect(() => {
+    if (ensureRTL()) {
+      setIsRestarting(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if ((fontsLoaded || fontsError) && !isRestarting) {
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded, fontsError, isRestarting]);
+
+  if (isRestarting || (!fontsLoaded && !fontsError)) {
+    return null;
+  }
+
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="quick-add" options={{ presentation: 'modal' }} />
+        </Stack>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}
