@@ -12,6 +12,7 @@ import {
 } from '@expo-google-fonts/tajawal';
 import { colors } from '@/src/design-system';
 import { ensureRTL } from '@/src/lib/rtl';
+import { useAuthGate } from '@/src/features/auth/useAuthGate';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
   // لا شيء نفعله لو فشل — بعض بيئات التشغيل (Web) لا تدعمه.
@@ -32,13 +33,15 @@ export default function RootLayout() {
     }
   }, []);
 
+  const { isReady: isAuthReady } = useAuthGate();
+
   useEffect(() => {
-    if ((fontsLoaded || fontsError) && !isRestarting) {
+    if ((fontsLoaded || fontsError) && !isRestarting && isAuthReady) {
       SplashScreen.hideAsync().catch(() => {});
     }
-  }, [fontsLoaded, fontsError, isRestarting]);
+  }, [fontsLoaded, fontsError, isRestarting, isAuthReady]);
 
-  if (isRestarting || (!fontsLoaded && !fontsError)) {
+  if (isRestarting || (!fontsLoaded && !fontsError) || !isAuthReady) {
     return null;
   }
 
@@ -46,6 +49,8 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="onboarding" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="quick-add" options={{ presentation: 'modal' }} />
         </Stack>

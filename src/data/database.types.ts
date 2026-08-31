@@ -29,6 +29,7 @@ export interface Database {
           display_name: string;
           avatar_url: string | null;
           goal_type: GoalType;
+          onboarding_completed_at: string | null;
           created_at: string;
           updated_at: string;
         };

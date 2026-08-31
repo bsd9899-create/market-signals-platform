@@ -1,6 +1,7 @@
 import { ScrollView, View } from 'react-native';
 import { Card, Screen, Text } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
+import { useProfileStore } from '@/src/features/auth/profileStore';
 
 /**
  * شاشة "اليوم" — أهم شاشة في التطبيق. هذا هيكل المرحلة 1 فقط (تخطيط +
@@ -8,11 +9,13 @@ import { spacing } from '@/src/design-system/spacing';
  * في المرحلة 4.
  */
 export default function TodayScreen() {
+  const displayName = useProfileStore((s) => s.profile?.display_name);
+
   return (
     <Screen edges={['top']}>
       <ScrollView contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.xxxl }} showsVerticalScrollIndicator={false}>
         <View style={{ marginTop: spacing.md }}>
-          <Text variant="displayMd">هلا بدر 👋</Text>
+          <Text variant="displayMd">هلا {displayName ?? ''} 👋</Text>
         </View>
 
         <Card variant="soft">

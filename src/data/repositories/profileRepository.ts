@@ -20,7 +20,9 @@ export const profileRepository = {
     return data;
   },
 
-  async updateCurrent(patch: Partial<Pick<Profile, 'display_name' | 'avatar_url' | 'goal_type'>>) {
+  async updateCurrent(
+    patch: Partial<Pick<Profile, 'display_name' | 'avatar_url' | 'goal_type' | 'onboarding_completed_at'>>
+  ) {
     const {
       data: { user },
     } = await supabase.auth.getUser();
