@@ -1,8 +1,0 @@
-# إعدادات Telegram غير السرّية - القيم السرّية (Bot Token, Chat ID)
-# تُقرأ من .env حصراً وليس من هنا (TELEGRAM_BOT_TOKEN, TELEGRAM_ADMIN_CHAT_ID).
-#
-# enabled=false في هذه المرحلة عمداً: لا يوجد اتصال Telegram حقيقي بعد
-# (راجع app/infrastructure/telegram/sender.py::LoggingTelegramSender) -
-# حتى لو true، TelegramService لن يتصل بأي شبكة إلا بعد ربط
-# TelegramSender حقيقي في مرحلة قادمة.
-enabled: false

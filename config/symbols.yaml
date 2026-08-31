@@ -1,7 +1,0 @@
-# قائمة الرموز (Symbols) - تُقرأ عبر app/infrastructure/config/loader.py
-# وتُستخدَم فعلياً الآن في app/main.py::_run_scan_and_alert_best_opportunity
-# (فحص كل هذه الرموز، إرسال أفضل فرصة واحدة فقط إلى Telegram - راجع main.py).
-symbols:
-  - AAPL
-  - NVDA
-  - TSLA
