@@ -1,5 +1,6 @@
+import { useCallback } from 'react';
 import { ActivityIndicator, RefreshControl, ScrollView, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Button, Card, ProgressBar, Screen, Text } from '@/src/design-system';
 import { colors } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
@@ -14,6 +15,14 @@ export default function TodayScreen() {
   const userId = useAuthStore((s) => s.session?.user.id);
   const displayName = useProfileStore((s) => s.profile?.display_name);
   const { summary, isLoading, error, refetch } = useTodayData(userId);
+
+  // إعادة الجلب عند الرجوع من الإضافة السريعة أو أي شاشة أخرى — التبويبات
+  // في Expo Router تبقى مثبّتة (لا تُعاد بالكامل) عند التنقل بينها.
+  useFocusEffect(
+    useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   if (!summary && isLoading) {
     return (

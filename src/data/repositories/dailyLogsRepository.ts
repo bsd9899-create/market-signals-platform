@@ -2,9 +2,9 @@ import { supabase } from '../supabase';
 import { startOfTodayISO, toDateKey } from '@/src/lib/date';
 
 /**
- * قراءات "اليوم" المجمَّعة من جداول السجلات الفعلية — تغذّي شاشة اليوم
- * ومحرّك قرار اليوم (src/domain/decisionEngine.ts). عمليات الإضافة
- * (Quick Add) تُبنى في المرحلة 5 في نفس هذا الملف.
+ * قراءات وإضافات "اليوم" من جداول السجلات الفعلية — تغذّي شاشة اليوم
+ * ومحرّك قرار اليوم (src/domain/decisionEngine.ts)، وتُستخدم من شاشات
+ * الإضافة السريعة (app/log/*).
  */
 export const dailyLogsRepository = {
   async getTodayWaterMl(userId: string): Promise<number> {
@@ -72,5 +72,54 @@ export const dailyLogsRepository = {
       .order('date', { ascending: true });
     if (error) throw error;
     return data ?? [];
+  },
+
+  // ---- Quick Add (المرحلة 5) ----
+
+  async addWater(userId: string, amountMl: number) {
+    const { error } = await supabase.from('water_logs').insert({ user_id: userId, amount_ml: amountMl });
+    if (error) throw error;
+  },
+
+  async addWeight(userId: string, weightKg: number) {
+    const { error } = await supabase.from('weight_logs').insert({ user_id: userId, weight_kg: weightKg });
+    if (error) throw error;
+  },
+
+  /** إجمالي اليوم (استبدال وليس إضافة) — نفس مبدأ steps_logs (صف واحد لكل يوم). */
+  async setStepsToday(userId: string, steps: number) {
+    const { error } = await supabase
+      .from('steps_logs')
+      .upsert({ user_id: userId, date: toDateKey(), steps }, { onConflict: 'user_id,date' });
+    if (error) throw error;
+  },
+
+  async setSleepToday(userId: string, hours: number) {
+    const { error } = await supabase
+      .from('sleep_logs')
+      .upsert({ user_id: userId, date: toDateKey(), hours }, { onConflict: 'user_id,date' });
+    if (error) throw error;
+  },
+
+  async addNutritionLog(
+    userId: string,
+    meal: { mealType: 'breakfast' | 'lunch' | 'dinner' | 'snack'; description: string; calories?: number }
+  ) {
+    const { error } = await supabase.from('nutrition_logs').insert({
+      user_id: userId,
+      meal_type: meal.mealType,
+      description: meal.description,
+      calories: meal.calories,
+    });
+    if (error) throw error;
+  },
+
+  async addWorkout(userId: string, workout: { title: string; durationMinutes: number }) {
+    const { error } = await supabase.from('workouts').insert({
+      user_id: userId,
+      title: workout.title,
+      duration_minutes: workout.durationMinutes,
+    });
+    if (error) throw error;
   },
 };
