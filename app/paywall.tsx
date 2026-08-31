@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { PurchasesPackage } from 'react-native-purchases';
-import { Button, Card, Screen, Text, colors } from '@/src/design-system';
+import { Button, Card, Screen, Skeleton, Text, Wordmark, palette } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { useAuthStore } from '@/src/features/auth/store';
 import { getCurrentOfferingPackages, isRevenueCatConfigured, purchasePackage, restorePurchases } from '@/src/subscriptions/revenuecat';
@@ -12,11 +12,12 @@ import { getFriendlyErrorMessage } from '@/src/lib/errors';
 export default function PaywallScreen() {
   const router = useRouter();
   const userId = useAuthStore((s) => s.session?.user.id);
-  const { refresh } = usePremiumStatus(userId);
+  const { isPremium, refresh } = usePremiumStatus(userId);
 
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [busyPackageId, setBusyPackageId] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,21 +48,40 @@ export default function PaywallScreen() {
 
   async function handleRestore() {
     setError(null);
+    setIsRestoring(true);
     try {
       await restorePurchases();
       await refresh();
       router.back();
     } catch (e) {
       setError(getFriendlyErrorMessage(e, 'تعذّر استعادة المشتريات'));
+    } finally {
+      setIsRestoring(false);
     }
+  }
+
+  if (isPremium) {
+    return (
+      <Screen style={{ alignItems: 'center', justifyContent: 'center', gap: spacing.md }}>
+        <Text variant="displayMd">✅</Text>
+        <Text variant="title">أنت مشترك في هِمّة+</Text>
+        <Text variant="body" color="textSecondary" style={{ textAlign: 'center' }}>
+          إدارة الاشتراك أو إلغاؤه يتم من إعدادات الاشتراكات في جهازك (App Store).
+        </Text>
+        <Button label="إغلاق" variant="secondary" onPress={() => router.back()} />
+      </Screen>
+    );
   }
 
   return (
     <Screen>
       <View style={{ flex: 1, gap: spacing.lg }}>
-        <View>
-          <Text variant="displayMd">هِمّة+ ✨</Text>
-          <Text variant="body" color="textSecondary" style={{ marginTop: spacing.xs }}>
+        <View style={{ alignItems: 'center', gap: spacing.sm }}>
+          <Wordmark />
+          <Text variant="title" style={{ textAlign: 'center' }}>
+            هِمّة+ ✨
+          </Text>
+          <Text variant="body" color="textSecondary" style={{ textAlign: 'center' }}>
             دعم الالتزام على المدى الطويل — مزايا إضافية قادمة تباعًا.
           </Text>
         </View>
@@ -73,7 +93,10 @@ export default function PaywallScreen() {
             </Text>
           </Card>
         ) : isLoading ? (
-          <ActivityIndicator color={colors.primary} />
+          <View style={{ gap: spacing.sm }}>
+            <Skeleton height={100} />
+            <Skeleton height={100} />
+          </View>
         ) : packages.length === 0 ? (
           <Card variant="soft">
             <Text variant="body" color="textSecondary">
@@ -82,30 +105,49 @@ export default function PaywallScreen() {
           </Card>
         ) : (
           <View style={{ gap: spacing.sm }}>
-            {packages.map((pkg) => (
-              <Card key={pkg.identifier}>
-                <Text variant="bodyStrong">{pkg.product.title}</Text>
-                <Text variant="title" color="primary" style={{ marginTop: spacing.xxs }}>
-                  {pkg.product.priceString}
-                </Text>
-                <Button
-                  label={busyPackageId === pkg.identifier ? 'جارِ الشراء...' : 'اشترك'}
-                  style={{ marginTop: spacing.sm }}
-                  disabled={busyPackageId !== null}
-                  onPress={() => handlePurchase(pkg)}
-                />
-              </Card>
-            ))}
+            {packages.map((pkg) => {
+              const isAnnual = pkg.packageType === 'ANNUAL';
+              return (
+                <Card
+                  key={pkg.identifier}
+                  style={isAnnual ? { borderColor: palette.gold500, borderWidth: 2 } : undefined}
+                >
+                  {isAnnual ? (
+                    <Text variant="overline" color="accent">
+                      الأفضل قيمة
+                    </Text>
+                  ) : null}
+                  <Text variant="bodyStrong" style={{ marginTop: spacing.xxs }}>
+                    {pkg.product.title}
+                  </Text>
+                  <Text variant="title" color="primary" style={{ marginTop: spacing.xxs }}>
+                    {pkg.product.priceString}
+                  </Text>
+                  <Button
+                    label={busyPackageId === pkg.identifier ? 'جارِ الشراء...' : 'اشترك'}
+                    variant={isAnnual ? 'primary' : 'secondary'}
+                    style={{ marginTop: spacing.sm }}
+                    disabled={busyPackageId !== null}
+                    onPress={() => handlePurchase(pkg)}
+                  />
+                </Card>
+              );
+            })}
           </View>
         )}
 
         {error ? (
-          <Text variant="caption" color="danger">
+          <Text variant="caption" color="danger" style={{ textAlign: 'center' }}>
             {error}
           </Text>
         ) : null}
 
-        <Button label="استعادة المشتريات" variant="ghost" onPress={handleRestore} />
+        <Button
+          label={isRestoring ? 'جارِ الاستعادة...' : 'استعادة المشتريات'}
+          variant="ghost"
+          disabled={isRestoring}
+          onPress={handleRestore}
+        />
       </View>
     </Screen>
   );
