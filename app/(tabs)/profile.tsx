@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { Alert, Linking, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { Button, Card, Screen, Text } from '@/src/design-system';
 import { spacing } from '@/src/design-system/spacing';
 import { deleteAccount, signOut } from '@/src/features/auth/api';
@@ -8,6 +9,9 @@ import { useAuthStore } from '@/src/features/auth/store';
 import { useProfileStore } from '@/src/features/auth/profileStore';
 import { useHealthSync } from '@/src/integrations/health/useHealthSync';
 import { getFriendlyErrorMessage } from '@/src/lib/errors';
+import { GOAL_OPTIONS } from '@/src/features/profile/GoalPicker';
+
+const PRIVACY_POLICY_URL = 'https://github.com/bsd9899-create/market-signals-platform/blob/main/docs/PRIVACY_POLICY.md';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -46,7 +50,9 @@ export default function ProfileScreen() {
         <View>
           <Text variant="title">{profile?.display_name ?? 'حسابي'}</Text>
           <Text variant="body" color="textSecondary" style={{ marginTop: spacing.xxs }}>
-            إعدادات الخصوصية تُبنى في المراحل القادمة.
+            {profile?.goal_type
+              ? `هدفك: ${GOAL_OPTIONS.find((g) => g.value === profile.goal_type)?.label ?? ''}`
+              : 'أكمل هدفك من تعديل ملفي'}
           </Text>
         </View>
 
@@ -83,6 +89,11 @@ export default function ProfileScreen() {
           )}
         </Card>
 
+        <Button
+          label="سياسة الخصوصية"
+          variant="ghost"
+          onPress={() => Linking.openURL(PRIVACY_POLICY_URL).catch(() => {})}
+        />
         <Button label="تسجيل الخروج" variant="ghost" onPress={() => signOut()} />
         <Button
           label={isDeleting ? 'جارِ الحذف...' : 'حذف حسابي نهائيًا'}
@@ -90,6 +101,10 @@ export default function ProfileScreen() {
           disabled={isDeleting}
           onPress={confirmDeleteAccount}
         />
+
+        <Text variant="caption" color="textSecondary" style={{ textAlign: 'center' }}>
+          هِمّة — الإصدار {Constants.expoConfig?.version ?? '1.0.0'}
+        </Text>
       </View>
     </Screen>
   );

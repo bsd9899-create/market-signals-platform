@@ -16,7 +16,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.hemma.app",
       "infoPlist": {
-        "UIBackgroundModes": []
+        "UIBackgroundModes": [],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -36,6 +37,7 @@
       "expo-router",
       "expo-font",
       "expo-secure-store",
+      "expo-dev-client",
       [
         "expo-splash-screen",
         {
