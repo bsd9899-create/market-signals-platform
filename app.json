@@ -54,7 +54,9 @@
           "NSHealthUpdateUsageDescription": false,
           "background": false
         }
-      ]
+      ],
+      "expo-web-browser",
+      "expo-apple-authentication"
     ]
   }
 }

@@ -27,6 +27,10 @@ export const supabase = createClient<Database>(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      // PKCE إلزامي لتبادل كود OAuth (Google) داخل تطبيق React Native —
+      // الطريقة الافتراضية (implicit) تعتمد على تحليل التطبيق لرابط ويب،
+      // وهذا غير متاح هنا أصلًا بما أن detectSessionInUrl مُعطّلة.
+      flowType: 'pkce',
     },
   }
 );

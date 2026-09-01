@@ -1,74 +1,91 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Platform, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { z } from 'zod';
-import { Button, Screen, Text, TextField, Wordmark } from '@/src/design-system';
-import { spacing } from '@/src/design-system/spacing';
-import { requestEmailOtp } from '@/src/features/auth/api';
+import { Platform, View } from 'react-native';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import { Button, Screen, Text, Wordmark } from '@/src/design-system';
+import { radius, spacing } from '@/src/design-system/spacing';
+import { signInWithApple, signInWithGoogle } from '@/src/features/auth/oauth';
 import { getFriendlyErrorMessage } from '@/src/lib/errors';
 
-const emailSchema = z.string().trim().email('أدخل بريدًا إلكترونيًا صحيحًا');
-
 export default function SignInScreen() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isAppleLoading, setIsAppleLoading] = useState(false);
+  const isBusy = isGoogleLoading || isAppleLoading;
 
-  async function handleSubmit() {
-    const result = emailSchema.safeParse(email);
-    if (!result.success) {
-      setError(result.error.issues[0]?.message ?? 'بريد إلكتروني غير صحيح');
-      return;
-    }
-
+  async function handleGoogle() {
+    if (isBusy) return;
     setError(null);
-    setIsSubmitting(true);
+    setIsGoogleLoading(true);
     try {
-      await requestEmailOtp(result.data);
-      router.push({ pathname: '/(auth)/verify', params: { email: result.data } });
+      // نجاح تسجيل الدخول يحدّث الجلسة تلقائيًا عبر onAuthStateChange في
+      // src/features/auth/store.ts، وحارس التنقل في useAuthGate يتولى
+      // الانتقال للمكان الصحيح (onboarding أو الرئيسية) — إلغاء المستخدم
+      // للمتصفح بنفسه ليس خطأ يستحق رسالة، فقط عودة صامتة لهذه الشاشة.
+      await signInWithGoogle();
     } catch (e) {
-      setError(getFriendlyErrorMessage(e, 'تعذّر إرسال رمز الدخول، حاول مرة أخرى'));
+      setError(getFriendlyErrorMessage(e, 'تعذّر تسجيل الدخول عبر Google'));
     } finally {
-      setIsSubmitting(false);
+      setIsGoogleLoading(false);
+    }
+  }
+
+  async function handleApple() {
+    if (isBusy) return;
+    setError(null);
+    setIsAppleLoading(true);
+    try {
+      await signInWithApple();
+    } catch (e) {
+      setError(getFriendlyErrorMessage(e, 'تعذّر تسجيل الدخول عبر Apple'));
+    } finally {
+      setIsAppleLoading(false);
     }
   }
 
   return (
     <Screen>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={{ flex: 1, justifyContent: 'center', gap: spacing.xl }}
-      >
+      <View style={{ flex: 1, justifyContent: 'center', gap: spacing.xl }}>
         <Wordmark />
         <View style={{ gap: spacing.xs }}>
           <Text variant="title" style={{ textAlign: 'center' }}>
             هلا فيك 👋
           </Text>
           <Text variant="body" color="textSecondary" style={{ textAlign: 'center' }}>
-            أدخل بريدك الإلكتروني وسنرسل لك رمز دخول سريع — بدون كلمة مرور
+            سجّل دخولك بضغطة واحدة لتبدأ رحلتك مع هِمّة
           </Text>
         </View>
 
         <View style={{ gap: spacing.sm }}>
-          <TextField
-            placeholder="بريدك الإلكتروني"
-            value={email}
-            onChangeText={setEmail}
-            error={error ?? undefined}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardType="email-address"
-            textContentType="emailAddress"
-            editable={!isSubmitting}
-          />
           <Button
-            label={isSubmitting ? 'جارِ الإرسال...' : 'إرسال رمز الدخول'}
-            onPress={handleSubmit}
-            disabled={isSubmitting}
+            label={isGoogleLoading ? 'جارِ تسجيل الدخول...' : 'المتابعة عبر Google'}
+            variant="secondary"
+            onPress={handleGoogle}
+            disabled={isBusy}
           />
+
+          {/* زر Apple الأصلي إلزامي على iOS فقط طالما نعرض بديلًا اجتماعيًا آخر (Google) —
+              متطلب مباشر من إرشادات آبل 4.8، ولا معنى له على أندرويد. */}
+          {Platform.OS === 'ios' ? (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+              cornerRadius={radius.pill}
+              style={{ height: 50, opacity: isBusy ? 0.5 : 1 }}
+              onPress={handleApple}
+            />
+          ) : null}
+
+          {error ? (
+            <Text variant="caption" color="danger" style={{ textAlign: 'center' }}>
+              {error}
+            </Text>
+          ) : null}
         </View>
-      </KeyboardAvoidingView>
+
+        <Text variant="caption" color="textSecondary" style={{ textAlign: 'center' }}>
+          بالمتابعة، أنت توافق على سياسة الخصوصية وشروط استخدام هِمّة
+        </Text>
+      </View>
     </Screen>
   );
 }
